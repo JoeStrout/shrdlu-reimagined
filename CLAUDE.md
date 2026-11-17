@@ -26,5 +26,6 @@ The 2008–09 Python prototype is in `../shrdlutng` (kept unchanged for history)
   - `MS_IMPORT_PATH=src miniscript tests/testWorld.ms`
   - `MS_IMPORT_PATH=src:tests miniscript tests/testDisplay.ms` (uses `tests/fakeRaylib.ms` in place of raylib)
   - `MS_IMPORT_PATH=src miniscript tests/testIcl.ms`
+  - `MS_IMPORT_PATH=src miniscript tests/testBrain.ms`
 - Claude's sandbox can't open a window, so it can't run the app or `tests/screenshots.ms`. Ask the user to run them; `tests/screenshots.ms` saves PNGs that Claude can then look at.
-- MiniScript gotchas: `outer` is a keyword (don't use it as a name); `indexOf` and `==` compare maps by value, so use `refEquals` for identity; there's no built-in `max`/`min`.
+- MiniScript gotchas: `outer` is a keyword (don't use it as a name); `indexOf` and `==` compare maps by value, so use `refEquals` for identity; there's no built-in `max`/`min`; a function literal nested inside a module's function can't see that module's top-level names (only its enclosing function's locals and true globals), so use plain loops instead of little lambdas.

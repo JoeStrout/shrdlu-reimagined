@@ -41,6 +41,7 @@ The tests run without a window, using command-line MiniScript 2:
 MS_IMPORT_PATH=src miniscript tests/testWorld.ms
 MS_IMPORT_PATH=src:tests miniscript tests/testDisplay.ms
 MS_IMPORT_PATH=src miniscript tests/testIcl.ms
+MS_IMPORT_PATH=src miniscript tests/testBrain.ms
 ```
 
 ## History

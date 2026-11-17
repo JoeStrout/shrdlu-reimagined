@@ -380,7 +380,7 @@ The reader is strict about structure but reports problems instead of stopping: e
 
 ### Still open
 
-1. **`in` the box:** is a block stacked on a block inside the box "in the box"? (Proposal: yes.)
+1. **`in` the box:** is a block stacked on a block inside the box "in the box"? (Proposal: yes. Implemented that way in `relations.ms`; revisit if the dialogue disagrees.)
 2. **Grid size** (0.25?) and **table size** (12 × 8?). These are to be tuned visually.
 3. **Arches.** These are supported by the multiple-supporter rules in §1.4. "Arch" is a natural word for the user to *teach*, in the way Winograd's dialogue taught "steeple": "An arch is a block supported by two blocks which do not touch each other." Building one needs a planner procedure that places two posts with the right gap and then the lintel. That procedure is a good stretch goal, after the Winograd dialogue passes. (Historical note: arches are most famously from Winston's 1970 arch-learning program in the same MIT blocks world; whether SHRDLU itself could build them is worth checking.)
 4. **Weight from above** (decided for v1, revisit later). The rules in §1.4 check only the object being placed. In reality, adding weight on top can make a structure *below* tip. For example, stacking more blocks on the overhanging end of a block that is itself only just balanced. A fuller check would test, for each object under the new one, the combined center of mass of everything it carries. That's straightforward for simple stacks, but ill-defined when the load is shared (as with a lintel on two posts, where real physics can't say how much weight each post bears without more detail). Decision: v1 checks only the placed object, and we revisit if the results look wrong.
@@ -392,6 +392,8 @@ The reader is strict about structure but reports problems instead of stopping: e
 | `src/geometry.ms` | convex polygons (clipping, hull, area, point-in-polygon), footprints, overlap, grid snapping, free-space search |
 | `src/world.ms` | Thing, the table, the box, the hand, the support graph, stability rules, primitives |
 | `src/relations.ms` | the spatial and comparative relations of §1.7, including "as of time t" |
+| `src/speech.ms` | English output: names for objects ("the large green cube"), lists, numbers |
+| `src/brain.ms` | reference resolution, question answering, and (next) commands and the planner |
 | `src/history.ms` | Goal, Event, snapshots, and querying the past |
 | `src/icl.ms` | ICL constructors, the pretty-printer, and the reader for the printed form |
 | `src/display.ms` | the raylib 3D scene: drawing, camera, picking, the hand animation |
