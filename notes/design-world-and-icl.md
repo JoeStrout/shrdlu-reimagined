@@ -233,34 +233,36 @@ Description
   props    list of Constraints  // adjectives and relative clauses
 ```
 
-**Constraints**: conditions on a description's referent. Each one is a predicate applied to the referent, perhaps with another description as a second argument:
+**Constraints**: conditions on a description's referent. Every constraint has the same shape, a predicate and a list of arguments: `{pred, args}`. The referent is always the implied first argument. An argument is a variable naming another description (`"x2"`), a word, a number, or another constraint:
 
 ```
-{pred: "color", value: "red"}
-{pred: "size", value: "big"}                            // relative; see §1.3
-{pred: "rel", rel: "on", obj: <Description>}            // "on a green cube"
-{pred: "rel", rel: "taller", obj: <Description>}        // "taller than the one you hold"
-{pred: "held"}                                          // "the one you are holding"
-{pred: "commanded", verb: "pickUp"}                     // "the one which I told you to pick up"
-{pred: "event", ...}                                    // "the block you put on the table"
-{op: "not", arg: <Constraint>}
-{op: "or",  args: [<Constraint>, …]}                    // "red or green"
+{pred: "color", args: ["red"]}
+{pred: "size", args: ["big"]}                           // relative; see §1.3
+{pred: "on", args: ["x2"]}                              // "on a green cube" (x2 = a cube [color green])
+{pred: "taller", args: ["x2"]}                          // "taller than the one you hold"
+{pred: "held", args: []}                                // "the one you are holding"
+{pred: "commanded", args: ["PickUp"]}                   // "the one which I told you to pick up"
+{pred: "not", args: [<Constraint>]}
+{pred: "or",  args: [<Constraint>, …]}                  // "red or green"
 ```
+
+One uniform shape (rather than separate kinds for relations, comparisons, and logic) means the brain can test a constraint by looking up its predicate in a single table of functions.
 
 **Statements**: what the user wants done or known. One sentence may produce several (as in "Find a block which… and put it into the box").
 
 | kind | examples | form |
 |---|---|---|
-| command | pick up, put, stack, clear off, find, drop | `{kind:"command", verb:"putIn", args:[x1, x2]}` |
-| yes/no question | "Is there…?", "Can a pyramid…?", "Is it supported?" | `{kind:"ask", q:"yes-no", claim: <Proposition>}` |
-| wh-question | "What does the box contain?", "Which cube…?" | `{kind:"ask", q:"which", target: x1}` |
-| count | "How many blocks are not in the box?" | `{kind:"ask", q:"count", target: x1}` |
-| attribute | "What color is it?" | `{kind:"ask", q:"attribute", attr:"color", target: x1}` |
-| history | "Why did you…?", "When…?", "How…?", "Had you touched…?" | `{kind:"ask", q:"why", event: <EventPattern>}` |
-| ability | "Can the table pick up blocks?" | `{kind:"ask", q:"can", claim: <Proposition>}` |
-| declaration | "Call it superblock.", "I own…", "A steeple is…" | `{kind:"define", …}` / `{kind:"name", …}` / `{kind:"own", …}` |
+| command | pick up, put, stack, clear off, find, drop | `{kind:"command", verb:"putIn", args:["x1", "x2"]}` |
+| existence | "Is there a…?" | `{kind:"ask", q:"exists", target:"x1"}` |
+| yes/no question | "Is it supported?", "Is at least one of them narrower…?" | `{kind:"ask", q:"yes-no", target:"x1", claim: <Constraint>}` |
+| wh-question | "What does the box contain?", "Which cube…?" | `{kind:"ask", q:"which", target:"x1"}` |
+| count | "How many blocks are not in the box?" | `{kind:"ask", q:"count", target:"x1"}` |
+| attribute | "What color is it?" | `{kind:"ask", q:"attribute", attr:"color", target:"x1"}` |
+| history | "Why did you…?", "When…?", "How…?" | `{kind:"ask", q:"why", target:"e1"}` |
+| ability | "Can the table pick up blocks?" | not yet designed |
+| declaration | "Call it superblock.", "I own…", "A steeple is…" | `{kind:"declare", verb:"name", args:["x1", "superblock"]}`, and likewise `own` and `define` |
 
-A **Proposition** is a relation applied to descriptions, such as `{rel:"supports", args:[x1, x2]}`. An **EventPattern** is a verb with argument descriptions and optional time constraints (`before`/`after`/`while` another event pattern), matched against the event history.
+A yes/no question is a target plus a constraint, the same pattern a description uses, so "Does x1 support x2?" is `{target:"x1", claim:{pred:"supports", args:["x2"]}}`. An **event** (`{kind:"event", var, verb, args, props}`) is a pattern: a verb with argument descriptions, plus optional time constraints (`[before e2]`, `[after e2]`, `[while e2]`), matched against the event history.
 
 ### 2.3 Variables and the printed form
 
@@ -290,21 +292,24 @@ Ask count x1
 
 **"Is at least one of them narrower than the one which I told you to pick up?"**
 ```
-x1 = at-least-1 of-them         // "them": the set from the previous answer
+x1 = at-least-1 of them         // "them": the set from the previous answer
 x2 = the one [commanded PickUp]
-Ask yes-no (narrower x1 x2)
+Ask yes-no x1 [narrower x2]
 ```
 
 **"Why did you pick it up?"**
 ```
 x1 = it
-e1 = event PickUp x1 [by robot]
+e1 = event PickUp x1
 Ask why e1
 ```
 
 **"A 'steeple' is a stack which contains two green cubes and a pyramid."**
 ```
-Define steeple = stack [contains 2 cubes [color green]] [contains 1 pyramid]
+x1 = a stack [contains x2] [contains x3]
+x2 = 2 cubes [color green]
+x3 = a pyramid
+Define steeple, x1
 ```
 
 The pretty-printer is part of the deliverable. It's what curious users will see, so it must be clear.
@@ -331,6 +336,36 @@ x1 = a block [size big] [color red]
 
 The **focus history** (recent descriptions, sets, and objects) is part of the brain's conversational state, alongside the world history.
 
+### 2.5 The printed form, precisely
+
+`src/icl.ms` reads and prints this form; `tests/testIcl.ms` has many examples. One item per line. `//` starts a comment, and blank lines are ignored.
+
+**Variables** are `x` or `e` followed by digits: `x1`, `x2` for descriptions, `e1`, `e2` for events. A variable may be used before the line that defines it (as in `x1 = a block [taller x2]`, with `x2` defined next), but it must be defined somewhere in the program, and only once.
+
+**Descriptions:** `var = [determiner] noun constraint…`
+
+- Determiners: `a` (`an` is accepted), `the`, `any`, `every`, `no`, `which`, `how-many`, a number (`2 cubes`), or `at-least-N`.
+- The noun is written as English, singular or plural (`block`, `blocks`, `boxes`). The reader stores the singular form plus a plural flag, and the printer puts the plural back.
+- Pronouns (`it`, `that`, `this`, `them`, `they`) take no determiner, except for partitives: `at-least-1 of them`.
+- A word with no determiner that isn't a pronoun is a **name** (`x2 = superblock`), and is left as written.
+
+**Constraints:** `[predicate arg…]`. Arguments are separated by spaces (commas are allowed). Each argument is a variable, a word, a number, or a nested constraint: `[color red]`, `[on x2]`, `[held]`, `[not [in x4]]`, `[or [on x2] [in x3]]`. The shorthand `[color red|green]` means `[or [color red] [color green]]`, and the printer uses the shorthand whenever it can.
+
+**Events:** `var = event Verb arg, arg… constraint…`, as in `e2 = event PickUp x2 [while e1]`.
+
+**Commands:** `Verb arg, arg…`, where the verb is capitalized: `PickUp x1`, `PutOn x1, x2`, `ClearOff x1`, `Stack x1, x2`, `Find x1`. In the data, verbs are lower camel case (`putOn`).
+
+**Declarations** look like commands but teach rather than act: `Define steeple, x1`, `Name x1, superblock`, `Own x1`.
+
+**Questions:** `Ask kind target [claim]`
+
+- `Ask exists x1`, `Ask count x1`, `Ask which x1`.
+- `Ask color x1`, or any other attribute name, for an attribute question.
+- `Ask yes-no x1 [narrower x2]`: the claim is a single constraint on the target.
+- `Ask why e1`, `Ask how e1`, `Ask when e1`: the target is an event.
+
+The reader is strict about structure but reports problems instead of stopping: each bad line produces a message like `line 3: missing ]`, and the rest of the program is still read.
+
 ---
 
 ## Part 3: Open questions
@@ -354,12 +389,12 @@ The **focus history** (recent descriptions, sets, and objects) is part of the br
 
 | file | contents |
 |---|---|
-| `assets/lib/geometry.ms` | convex polygons (clipping, hull, area, point-in-polygon), footprints, overlap, grid snapping, free-space search |
-| `assets/lib/world.ms` | Thing, the table, the box, the hand, the support graph, stability rules, primitives |
-| `assets/lib/relations.ms` | the spatial and comparative relations of §1.7, including "as of time t" |
-| `assets/lib/history.ms` | Goal, Event, snapshots, and querying the past |
-| `assets/lib/icl.ms` | ICL constructors, the pretty-printer, and the reader for the printed form |
-| `assets/lib/render.ms` | the raylib 3D scene: drawing, camera, picking, the hand animation |
-| `assets/scenes/winograd.ms` | the starting scene, as data |
+| `src/geometry.ms` | convex polygons (clipping, hull, area, point-in-polygon), footprints, overlap, grid snapping, free-space search |
+| `src/world.ms` | Thing, the table, the box, the hand, the support graph, stability rules, primitives |
+| `src/relations.ms` | the spatial and comparative relations of §1.7, including "as of time t" |
+| `src/history.ms` | Goal, Event, snapshots, and querying the past |
+| `src/icl.ms` | ICL constructors, the pretty-printer, and the reader for the printed form |
+| `src/display.ms` | the raylib 3D scene: drawing, camera, picking, the hand animation |
+| `src/scenes.ms` | the starting scenes, as data |
 
-The first milestone is `world.ms` + `geometry.ms` + `render.ms` + the scene: a visible, clickable world in which hard-coded `grasp`/`moveTo`/`ungrasp` sequences animate correctly. These modules are what the language side will build on.
+The first milestone (done) was `world.ms` + `geometry.ms` + `display.ms` + the scenes: a visible, clickable world in which hard-coded `grasp`/`moveTo`/`ungrasp` sequences animate correctly. These modules are what the language side will build on.

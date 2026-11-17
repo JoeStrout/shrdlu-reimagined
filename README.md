@@ -35,11 +35,12 @@ ln -s ../raylib-miniscript/build/raylib-miniscript raylib-miniscript
 ./raylib-miniscript src/main.ms
 ```
 
-The world-model and display tests run without a window, using command-line MiniScript 2:
+The tests run without a window, using command-line MiniScript 2:
 
 ```
 MS_IMPORT_PATH=src miniscript tests/testWorld.ms
 MS_IMPORT_PATH=src:tests miniscript tests/testDisplay.ms
+MS_IMPORT_PATH=src miniscript tests/testIcl.ms
 ```
 
 ## History

@@ -25,5 +25,6 @@ The 2008–09 Python prototype is in `../shrdlutng` (kept unchanged for history)
 - Tests without a window, using the MiniScript 2 command line (`../raylib-miniscript/MiniScript2/build/cpp/miniscript`):
   - `MS_IMPORT_PATH=src miniscript tests/testWorld.ms`
   - `MS_IMPORT_PATH=src:tests miniscript tests/testDisplay.ms` (uses `tests/fakeRaylib.ms` in place of raylib)
+  - `MS_IMPORT_PATH=src miniscript tests/testIcl.ms`
 - Claude's sandbox can't open a window, so it can't run the app or `tests/screenshots.ms`. Ask the user to run them; `tests/screenshots.ms` saves PNGs that Claude can then look at.
 - MiniScript gotchas: `outer` is a keyword (don't use it as a name); `indexOf` and `==` compare maps by value, so use `refEquals` for identity; there's no built-in `max`/`min`.
