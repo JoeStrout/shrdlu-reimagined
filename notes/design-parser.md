@@ -35,6 +35,7 @@ PutOn x1, x2
 - Expand contractions: "don't" → "do not", "can't" → "can not", "I'm" → "I am", "you're" → "you are".
 - Join multi-word expressions, longest first, from a list in the lexicon: "on top of", "next to", "in front of", "to the left of", "at least", "get rid of", "as well as". These are treated as one word from then on.
 - A word in quotation marks ("steeple", "superblock") is a **new word**, which a definition or a name is about to introduce. It's never "unknown".
+- Once taught, a word is known. The brain passes `parse` the names it has learned ("superblock"), which become names, and the nouns it has learned ("steeple"), which become nouns, in the singular or the plural ("steeples").
 
 Particle verbs ("pick up", "put down", "clear off", "stack up") are *not* joined at this stage, because the particle can move: "pick it up". The grammar handles them (§3.1).
 
@@ -122,7 +123,7 @@ The grammar's order of alternatives is its order of **preference**. When two par
 
 - **Determiners:** a, an, the, any, every, each, no, some, which, what, numbers ("two pyramids"), "how many", "at least one of".
 - **Adjectives:** color, size, and superlatives ("the littlest pyramid", "the biggest block").
-- **Nouns** and **pronouns** (it, that, this, them, they, one, ones, something, anything).
+- **Nouns** and **pronouns** (it, that, this, them, they, one, ones, something, anything). "One" alone ("Build one.") means "one one", borrowing its noun from earlier.
 - **Prepositional phrases:** "on the table", "in the box", "behind a pyramid", "to the left of the box", "on top of green cubes".
 - **Relative clauses**, with "which", "that", or nothing: "which is taller than…", "which supports a pyramid", "(that) you are holding", "which I told you to pick up". Their meaning is a constraint on the noun phrase: `[taller x2]`, `[supports x3]`, `[held]`, `[commanded PickUp]`.
 - **Comparatives:** "taller than the one…", "narrower than…", "bigger than every pyramid".
@@ -152,8 +153,8 @@ Verbs used in questions about the world ("contain", "support", "sit on") map to 
 These are in Winograd's dialogue but come after the first round:
 
 - **Noun-phrase conjunction:** "both of the red blocks and either a green cube or a pyramid". *(Done: `Parser.nounPhrases`, used for command arguments and the objects of relation verbs. Joined phrases become ICL groups.)*
-- **Ability questions:** "Can a pyramid support a pyramid?" (ICL for these isn't designed yet.)
-- **Definitions, names, and ownership:** "A 'steeple' is a stack which contains…", "Call the biggest block 'superblock'", "I own blocks which are not red…", "The blue pyramid is mine."
+- **Ability questions:** "Can a pyramid support a pyramid?" *(Done: `Parser.canQuestion`, giving `Ask can`.)*
+- **Definitions, names, and ownership:** "A 'steeple' is a stack which contains…", "Call the biggest block 'superblock'", "I own blocks which are not red…", "The blue pyramid is mine." *(Done. A definition is `Parser.defineStatement`: "a", the quoted word, "is", and a noun phrase, giving `Define steeple, x1`.)*
 - **Questions about the past with tense:** "Had you touched any pyramid before you put the green one on the little cube?", "What did the red cube support before you started to clean it off?"
 - **Social replies:** "Thank you." (This one is easy and may come early, just for fun.)
 

@@ -191,6 +191,11 @@ Meaning.sentence = function(s)
 		for part in parser.partsOfCat(s, "CMD")
 			self.prog.add self.command(part)
 		end for
+	else if s.kind == "define" then
+		// "A "steeple" is a stack which ..." -> Define steeple, x1
+		word = parser.partsOfCat(s, "name")[0].word
+		var = self.describe(parser.partsOfCat(s, "NP")[0])
+		self.prog.add icl.command("define", [word, var])
 	else if s.kind == "exists" then
 		self.prog.add icl.ask("exists", self.describe(s.parts[-1]))
 	else if s.kind == "claim" then
@@ -331,8 +336,8 @@ end function
 // The ICL for every reading of a sentence: {programs, trees, phrases,
 // error}.  The lists are in the same order, best first; phrases[i] lists
 // the noun phrases of reading i, with their words and variables.
-understand = function(text, names=null)
-	r = parser.parse(text, names)
+understand = function(text, names=null, nouns=null)
+	r = parser.parse(text, names, nouns)
 	programs = []
 	phrases = []
 	for tree in r.trees

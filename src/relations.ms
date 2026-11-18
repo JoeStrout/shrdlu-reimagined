@@ -13,6 +13,9 @@
 //   superlatives[pred]                     [biggest], [littlest] (these pick
 //                                          the extremes from a whole set)
 //
+// Stacks are worked out here too (see stacks, below): they aren't things
+// in the world, but the brain can talk about them as if they were.
+//
 // See notes/design-world-and-icl.md §1.7.  The definitions of "behind",
 // "left of" and so on are first guesses, to be tuned against the Winograd
 // dialogue.
@@ -92,7 +95,7 @@ sizeClass = function(theWorld, thing)
 		if lo == null or v < lo then lo = v
 		if hi == null or v > hi then hi = v
 	end for
-	if hi - lo < eps then return null
+	if lo == null or hi - lo < eps then return null
 	middle = sqrt(hi * lo)
 	if thing.volume > middle + eps then return "big"
 	if thing.volume < middle - eps then return "small"
@@ -106,16 +109,17 @@ sizeWords = {"big": "big", "large": "big", "huge": "big",
 // Does this thing fit a noun like "block" or "pyramid"?
 // "Thing" fits anything (so "What is it on?" can be answered "The table."),
 // but "object" fits only what's on the table ("How many objects did you
-// touch?").
+// touch?").  "Stack" fits only stacks, which aren't in the world's list of
+// things; see stacks.
 nounFits = function(thing, noun)
 	if noun == "cube" then return thing.shape == "block" and thing.isCube
 	if noun == "object" then return thing.shape != "table"
-	if noun == "thing" then return true
+	if noun == "thing" then return thing.shape != "stack"
 	return thing.shape == noun
 end function
 
 // The nouns that nounFits understands.
-nouns = ["block", "cube", "pyramid", "cylinder", "box", "table", "thing", "object"]
+nouns = ["block", "cube", "pyramid", "cylinder", "box", "table", "thing", "object", "stack"]
 
 //----------------------------------------------------------------------
 // Unary relations: true or false of a single thing.
@@ -170,10 +174,13 @@ end function
 
 // "In the box" counts anything whose support chain reaches the box, so a
 // block stacked on a block in the box is in the box too.
+// A stack contains its parts.
 binary["in"] = function(theWorld, a, b)
+	if b.shape == "stack" then return containsRef(b.parts, a)
 	return b.shape == "box" and containsRef(allBelow(a), b)
 end function
 binary.contains = function(theWorld, a, b)
+	if a.shape == "stack" then return containsRef(a.parts, b)
 	return a.shape == "box" and containsRef(allBelow(b), a)
 end function
 
@@ -272,4 +279,94 @@ extreme = function(things, pred)
 		if measure(t) * direction >= best - eps then result.push t
 	end for
 	return result
+end function
+
+//----------------------------------------------------------------------
+// Stacks.  A stack isn't a thing in the world: it's worked out from what
+// rests on what.  It is two or more things, each resting on the one below
+// (and only on it), from one standing on the table or in the box, up to
+// one with nothing more on it.  So after Winograd's turn 17 there is one
+// stack: the red block, the green cube, and the red cube on top.  Where
+// two things rest side by side on one block, there are two stacks, which
+// share what's below.
+//
+// A Stack is a Thing, so that relations like "to the left of" work on it:
+// it stands where its bottom part stands, and is as tall as all its parts
+// together.
+//----------------------------------------------------------------------
+
+Stack = new world.Thing
+Stack.shape = "stack"
+Stack.color = null
+Stack.movable = false
+Stack.parts = null      // the things in it, bottom first
+
+Stack.volume = function
+	total = 0
+	for p in self.parts
+		total += p.volume
+	end for
+	return total
+end function
+
+Stack.breadth = function
+	widest = 0
+	for p in self.parts
+		if p.breadth > widest then widest = p.breadth
+	end for
+	return widest
+end function
+
+Stack.footprintAt = function(x, z)
+	return self.parts[0].footprintAt(x, z)
+end function
+
+// Every stack in the world right now.  The same parts always give the same
+// Stack object, so that a stack found twice is recognized as one.
+stacks = function(theWorld)
+	result = []
+	for t in theWorld.things
+		if t.supporters.len != 1 or not t.movable then continue
+		base = t.supporters[0].shape
+		if base == "table" or base == "box" then addStacksFrom theWorld, [t], result
+	end for
+	return result
+end function
+
+// Follow things up from the top of a partial stack, adding each finished
+// stack to the result.
+addStacksFrom = function(theWorld, parts, result)
+	above = []
+	for t in theWorld.thingsOn(parts[-1])
+		if t.supporters.len == 1 then above.push t
+	end for
+	if not above then
+		if parts.len > 1 then result.push stackOf(theWorld, parts)
+		return
+	end if
+	for t in above
+		addStacksFrom theWorld, parts + [t], result
+	end for
+end function
+
+// The Stack made of these parts (bottom first), set to where they are now.
+stackOf = function(theWorld, parts)
+	ids = []
+	for p in parts
+		ids.push p.id
+	end for
+	key = ids.join(",")
+	if not theWorld.hasIndex("stackMemo") then theWorld.stackMemo = {}
+	if not theWorld.stackMemo.hasIndex(key) then
+		s = new Stack
+		s.id = "stack:" + key
+		s.parts = parts
+		s.names = []
+		theWorld.stackMemo[key] = s
+	end if
+	s = theWorld.stackMemo[key]
+	s.pos = parts[0].pos[:]
+	s.size = [parts[0].size[0], parts[-1].top - parts[0].y, parts[0].size[2]]
+	s.supporters = parts[0].supporters[:]
+	return s
 end function

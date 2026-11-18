@@ -326,3 +326,13 @@ All three pass: 35 turns as Winograd's (or better), 10 known gaps.
 
 "Have you picked superblock up since we began?" gets "Yes.": 36 turns as Winograd's (or better), 9 known gaps. "Since we began" (also "since we started" and "since the beginning") means the whole conversation, which is everything the robot remembers, so it adds no time constraint and needs nothing new in ICL. The present perfect ("have you picked…") already worked.
 
+### 2026-11-18: turns 37–40 (steeples) and 44
+
+Teaching "steeple", asking about steeples and "Build one." all pass: 40 turns as Winograd's (or better), 5 known gaps.
+
+- **Stacks** are worked out from the support graph (`relations.stacks`), not stored. "Stack" is a noun, and a `Stack` is a kind of Thing whose parts it contains.
+- **Definitions.** "A "steeple" is a stack which contains two green cubes and a pyramid." is `Define steeple, x1`. The brain keeps the description, and passes the parser its taught nouns, so "steeples" parses too. A steeple is anything that fits the description.
+- **Build.** "Build one" stacks up the parts the definition names, chosen as for a command. "One" alone is now a noun phrase, and "Are there any steeples now?" "No." leaves "steeple" as the noun to borrow. "Now" may end any sentence and adds nothing.
+- **Choosing parts.** Something sitting on a part already chosen costs nothing extra, since it has to be moved anyway. So the robot uses the red pyramid on the green cube rather than fetching the blue one from the box. When stacking, of two things the same size, the one on the table goes at the bottom. The robot now does what Winograd describes: it clears the red cube and two pyramids off one green cube, then stacks the other green cube and the red pyramid on it.
+- **Turn 44** is recorded as ours. The robot sets the red cube down on the left of the steeple, not the right, so the red cube isn't among the things to the right of the red pyramid.
+- In the brain test, "either a green cube or a pyramid" now picks the small green cube already on the red block, and the check was loosened to suit.

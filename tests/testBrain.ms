@@ -354,9 +354,10 @@ check refEquals(w.hand.holding, w.thing("p2")), "picked up the red pyramid"
 hear b, "Pick up the blue cube or the green cube in the box.", "I don't see any blue cubes."
 hear b, "Pick up both of the pyramids.", "I see three pyramids, not two."
 hear b, "Stack up both of the red blocks and either a green cube or a pyramid.", "OK."
-check w.thing("b1").supporters.len == 1 and w.thing("b1").supporters[0].color == "green", "the red cube is on a green cube"
-check refEquals(w.thing("b2").supporters[0], w.thing("b3")) or refEquals(w.thing("b4").supporters[0], w.thing("b3")),
-  "the green cube is on the large red block"
+// (It picks the small green cube, which was on the red block already.)
+above = @relations.binary.above
+check above(w, w.thing("b1"), w.thing("b3")), "the red cube is on the large red block"
+check above(w, w.thing("b4"), w.thing("b1")), "the small green cube is on top"
 hear b, "Stack up the red cube and a red block.", "OK."
 hear b, "Stack up the red cube and a red cube.", "I don't see another red cube."
 
@@ -382,6 +383,28 @@ hear b, "Put the small green cube in the box.", "OK."
 hear b, "What did the large red block support before you put the small green cube in the box?", "The small green cube."
 hear b, "There was a block on the large red block then.", "That's right."
 hear b, "There is a block on the large red block.", "No, none."
+
+// Stacks, and words the user teaches.  A stack is worked out from what
+// rests on what; the box isn't part of one.
+w = newWorld
+b = brain.Brain.make(w)
+stacks = relations.stacks(w)
+check stacks.len == 3, "three stacks to start with: " + stacks.len
+check refEquals(relations.stacks(w)[2], stacks[2]), "the same parts make the same stack"
+check relations.binary.contains(w, stacks[0], w.thing("p1")), "a stack contains its parts"
+hear b, "How many stacks are there?", "Three of them."
+hear b, "Is there a stack which contains a pyramid and a red block?", "Yes, the stack of the red cube and the green pyramid."
+hear b, "Are there any steeples?", "Sorry, I don't know the word ""steeples""."
+hear b, "A ""steeple"" is a stack which contains two green cubes and a pyramid.", "I understand."
+hear b, "Are there any steeples?", "No."
+hear b, "Build one.", "OK."
+hear b, "Is there a steeple?", "Yes, the stack of the large green cube, the small green cube and the red pyramid."
+hear b, "Is the blue block in a steeple?", "No."
+hear b, "Build a pyramid.", "Sorry, I don't know how to build a pyramid."
+hear b, "Build a stack.", "What should I stack up?"
+hear b, "Build two steeples.", "I can only build one thing at a time."
+hear b, "A ""tower"" is the red block.", "That sounds like one particular thing.  To give it a name, say ""Call it tower""."
+hear b, "A ""block"" is a stack which contains a pyramid.", "I already know the word ""block""."
 
 print checks + " checks, " + failures + " failures."
 exit (failures > 0)

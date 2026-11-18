@@ -78,6 +78,8 @@ All physical things share one prototype, `Thing`. Kinds are distinguished by `sh
 - `X.isClear` means nothing rests on `X`
 - **Stacks:** follow `supporters` links downward, or "supports" links upward.
 
+**"A stack"** is something the user can talk about ("How many stacks are there?", and "a steeple is a stack which…"), but it isn't stored. `relations.stacks` works out the stacks from the support graph whenever asked. A stack is two or more movable things, each resting on the one below and only on it. It starts with one standing on the table or in the box and goes up until nothing more is on top. If two things rest side by side on one block, that makes two stacks, sharing what's below. A `Stack` is a kind of Thing with `parts` (bottom first). It stands where its bottom part stands and is as tall as all its parts together, so relations like "to the left of" work on it. `[contains x]` and `[in x]` mean being one of its parts. The same parts always give the same Stack object, so a stack found twice is recognized as one.
+
 Because a thing that supports anything is not clear, and only clear things can be grasped, the robot can never pull a post out from under a lintel. It must remove the lintel first. No special rule is needed.
 
 **Where a placed object comes to rest.** Given a footprint (an x/z position), the object comes straight down:
@@ -367,7 +369,13 @@ The **focus history** (recent descriptions, sets, and objects) is part of the br
 
 **Descriptions that mention themselves.** In "anything which is not as wide as the thing that supports it", "it" is the anything, so the parser writes `x1 = any thing [not [asWide x3]]`, `x3 = the thing [supports x1]` (`Meaning.boundPronoun`: "it" means a description two levels out, never the one its own clause is about). While the brain tests each candidate for x1, x1 means just that candidate (`Brain.filter`, using `Brain.bound`), and nothing that depends on it is cached. A "the" that depends on it may find nothing ("the thing that supports" the table); then the constraint is false, and so is its `[not …]`.
 
-**Declarations** look like commands but teach rather than act: `Define steeple, x1`, `Name x1, superblock`, `Own x1`, `DontOwn x1`. Ownership isn't stored on the things. The brain keeps a list of what it was told. For one thing ("the blue pyramid"), that's the thing; for a kind ("any blocks [not [color red]]"), it's the description, checked against the world whenever ownership matters. The newest entry that fits a thing decides, and if none does, the robot doesn't know (`[owned]` is false, and "Do I own the table?" gets "I don't know.").
+**Declarations** look like commands but teach rather than act: `Define steeple, x1`, `Name x1, superblock`, `Own x1`, `DontOwn x1`.
+
+`Define steeple, x1` keeps x1's description, along with the program it's in. After that, "steeple" is a noun: the brain gives the parser its taught nouns, singular or plural, and a steeple is anything that fits x1, worked out in the defining program (`Brain.definedThings`, with `Brain.enter` and `Brain.leave` switching programs). A definition must be a kind of thing ("a stack which…", not "the red block"), and it can't redefine a word the robot already knows.
+
+`Build x1` builds what a taught word means, when that's a stack of certain things: `x1 = a stack [contains x4]`, with x4 the things. The brain chooses the parts as it would for a command, then sets a `stack` goal. "Build one", after "Are there any steeples now?" "No.", gets its noun from the question.
+
+ Ownership isn't stored on the things. The brain keeps a list of what it was told. For one thing ("the blue pyramid"), that's the thing; for a kind ("any blocks [not [color red]]"), it's the description, checked against the world whenever ownership matters. The newest entry that fits a thing decides, and if none does, the robot doesn't know (`[owned]` is false, and "Do I own the table?" gets "I don't know.").
 
 **Questions:** `Ask kind target [claim]`
 

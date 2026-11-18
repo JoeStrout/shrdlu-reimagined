@@ -66,6 +66,7 @@ end function
 // replaced by "one".
 nameFor = function(theWorld, thing, specific=true, noun=null)
 	if thing.shape == "table" or thing.shape == "box" then return "the " + thing.shape
+	if thing.shape == "stack" then return "the stack of " + namesFor(theWorld, thing.parts)
 	myNoun = thing.noun
 	if myNoun == noun then myNoun = "one"
 	if thing.names then return "the " + myNoun + " named " + thing.names[0]

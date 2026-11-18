@@ -175,13 +175,16 @@ end function
 pyramidRule = "Nothing will stay on top of a pyramid."
 
 // Stack things up, one on another.  The biggest goes at the bottom, and a
-// pyramid (only one!) can only go on top.
+// pyramid (only one!) can only go on top.  Of two the same size, one
+// standing on the table goes below, so the stack stands on the table.
 Planner.stack = function(things)
 	if things.len < 2 then return "I need at least two things to make a stack."
 	blocks = []
 	pyramids = []
 	for t in things
-		if t.shape == "pyramid" then pyramids.push t else blocks.push {"thing": t, "size": t.volume}
+		size = t.volume
+		if self.restsOnlyOn(t, self.world.table) then size += 0.001   // (just a tie-breaker)
+		if t.shape == "pyramid" then pyramids.push t else blocks.push {"thing": t, "size": size}
 	end for
 	if pyramids.len > 1 then return "I can't. " + pyramidRule
 	blocks.sort "size", false

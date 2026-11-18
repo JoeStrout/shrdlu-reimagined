@@ -194,14 +194,11 @@ turn "Is there anything which is bigger than every pyramid but is not as wide as
 
 turn "Does a steeple", "Sorry, I don't know the word ""steeple""."
 
-turn "A ""steeple"" is a stack which contains two green cubes and a pyramid.", "I understand.",
-  {"gap": "definitions"}
+turn "A ""steeple"" is a stack which contains two green cubes and a pyramid.", "I understand."
 
-turn "Are there any steeples now?", "No.",
-  {"gap": "definitions"}
+turn "Are there any steeples now?", "No."
 
-turn "Build one.", "OK.",
-  {"gap": "building what was defined"}
+turn "Build one.", "OK."
 
 turn "Call the biggest block ""superblock"".", "OK."
 
@@ -210,8 +207,12 @@ turn "Have you picked superblock up since we began?", "Yes."
 turn "Why did you drop it?", "By ""it"", I assume you mean the superblock. I can't explain a nonexistent event.",
   {"gap": "announcing what a pronoun was taken to mean, and events that didn't happen"}
 
+// Our robot builds the steeple as Winograd's did (clearing off a green
+// cube, then stacking the other green cube and the red pyramid on it), but
+// sets the red cube down to the left of it rather than the right.
 turn "Is there anything to the right of the red pyramid?", "Yes, four things: the box, the red cube, the blue pyramid and the block named superblock.",
-  {"gap": "depends on where ""Build one."" leaves things"}
+  {"ours": "Yes, three things: the block named superblock, the box and the blue pyramid.",
+   "why": "the red cube was set down on the other side of the steeple"}
 
 turn "Thank you.", "You're welcome!"
 

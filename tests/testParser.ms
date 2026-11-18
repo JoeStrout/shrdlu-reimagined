@@ -177,8 +177,8 @@ check parser.formatTree(r.trees[0]) == "(NP the (ADJ littlest) (N pyramid))", "t
 //----------------------------------------------------------------------
 
 // The ICL for every reading of a sentence, best first (or the complaint).
-readingsOf = function(text, names=null)
-	r = meaning.understand(text, names)
+readingsOf = function(text, names=null, nouns=null)
+	r = meaning.understand(text, names, nouns)
 	if r.error then return r.error
 	readings = []
 	for prog in r.programs
@@ -188,8 +188,8 @@ readingsOf = function(text, names=null)
 end function
 
 // Check that a sentence's best reading means the given ICL.
-expect = function(text, expected, names=null)
-	readings = readingsOf(text, names)
+expect = function(text, expected, names=null, nouns=null)
+	readings = readingsOf(text, names, nouns)
 	if readings isa string then
 		check false, """" + text + """: " + readings
 	else
@@ -322,6 +322,17 @@ expect "Have you picked superblock up since we began?", "x1 = superblock; e1 = e
 expect "There were five blocks to the left of the box then.",
   "x1 = 5 blocks [then [leftOf x2]]; x2 = the box; Claim exists x1"
 expect "There is a red block on the table.", "x1 = a block [color red] [on x2]; x2 = the table; Claim exists x1"
+
+// Teaching a word, and using it.  A taught noun is passed in, as the brain
+// does, and may be plural.  "Now" adds nothing.  "Build one" is "one one",
+// borrowing its noun from earlier.
+expect "A ""steeple"" is a stack which contains two green cubes and a pyramid.",
+  "x1 = a stack [contains x4]; x2 = 2 cubes [color green]; x3 = a pyramid; x4 = x2 and x3; Define steeple, x1"
+expect "Are there any steeples now?", "x1 = any steeples; Ask exists x1", null, ["steeple"]
+check readingsOf("Are there any steeples?") == "Sorry, I don't know the word ""steeples"".", "steeple isn't known until taught"
+expect "Is the red block on the table now?", "x1 = the block [color red]; x2 = the table; Ask yes-no x1 [on x2]"
+expect "Build one.", "x1 = 1 one; Build x1"
+expect "Build a steeple.", "x1 = a steeple; Build x1", null, ["steeple"]
 
 // The classic ambiguity, in a command.
 readings = readingsOf("Put the blue pyramid on the block in the box.")

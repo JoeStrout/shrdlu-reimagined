@@ -54,6 +54,11 @@ Brain.selected = null
 // What the user has told us they own (see Brain.owns).
 Brain.ownership = null
 
+// Words the user has taught us: word -> {prog, var}, the description the
+// word means and the program it's in.  (See Brain.define.)
+Brain.definitions = null
+Brain.expanding = null  // the defined words being worked out right now
+
 // Per-sentence working state.
 Brain.prog = null       // the ICL program being handled
 Brain.cache = null      // var -> candidates, so each is only worked out once
@@ -70,6 +75,8 @@ Brain.make = function(theWorld)
 	b.focus = {"it": null, "them": null, "noun": null, "event": null, "time": null}
 	b.planner = planner.Planner.make(theWorld)
 	b.ownership = []
+	b.definitions = {}
+	b.expanding = {}
 	return b
 end function
 
@@ -116,6 +123,7 @@ Brain.handle = function(statement)
 	if statement.kind == "claim" then return self.checkClaim(statement)
 	if statement.kind == "command" then return self.command(statement)
 	if statement.kind == "declare" and statement.verb == "name" then return self.giveName(statement)
+	if statement.kind == "declare" and statement.verb == "define" then return self.define(statement)
 	if statement.kind == "declare" and statement.verb == "own" then return self.learnOwnership(statement, true)
 	if statement.kind == "declare" and statement.verb == "dontOwn" then return self.learnOwnership(statement, false)
 	return "Sorry, I can't do that yet."
@@ -231,6 +239,8 @@ Brain.thingsForHead = function(d)
 		return self.focus.them[:]
 	end if
 	if head == "one" then head = self.antecedentNoun(d)
+	if self.definitions.hasIndex(head) then return self.definedThings(head)
+	if head == "stack" then return relations.stacks(self.world)
 	if relations.nouns.indexOf(head) != null then
 		result = []
 		for t in self.world.things
@@ -252,7 +262,7 @@ Brain.antecedentNoun = function(d)
 	for item in self.prog.lines
 		if refEquals(item, d) then break
 		if item.kind != "description" then continue
-		if relations.nouns.indexOf(item.head) != null then found = item.head
+		if self.isNoun(item.head) then found = item.head
 	end for
 	if found then return found
 	if self.focus.noun then return self.focus.noun
@@ -565,7 +575,7 @@ end function
 // Remember what we just talked about, for "it", "them", and "one".
 Brain.noteFocus = function(var, things)
 	d = self.prog.lookup(var)
-	if d and d.kind == "description" and relations.nouns.indexOf(d.head) != null then self.focus.noun = d.head
+	if d and d.kind == "description" and self.isNoun(d.head) then self.focus.noun = d.head
 	if things.len == 1 then self.focus.it = things[0]
 	if things.len > 1 then self.focus.them = things[:]
 end function
@@ -590,8 +600,10 @@ end function
 Brain.answerExists = function(var)
 	things = self.candidates(var)
 	if things == null then return null
-	if not things then return "No."
 	self.noteFocus var, things
+	// (Even with none, the noun is what we're talking about: "Are there any
+	// steeples now?"  "No."  "Build one.")
+	if not things then return "No."
 	return "Yes, " + self.countedNames(var, things) + "."
 end function
 
@@ -789,6 +801,7 @@ Brain.command = function(cmd)
 	// "Move the red pyramid" (with nowhere to move it) makes sense as a
 	// question ("Why did you move it?"), but not as a command.
 	if cmd.verb == "move" then return self.fail("Where should I move it to?  You can say, for example, ""Move it onto the box.""")
+	if cmd.verb == "build" then return self.build(cmd)
 	if not commandGoals.hasIndex(cmd.verb) then
 		return "Sorry, I don't know how to " + cmd.verb + "."
 	end if
@@ -931,13 +944,17 @@ Brain.notChosenYet = function(things)
 	return result
 end function
 
-// Sort things by how much trouble they'd be to pick up.
+// Sort things by how much trouble they'd be to pick up.  Something
+// sitting on a thing already picked for this sentence costs nothing extra,
+// since it will have to be moved anyway.  (So to build a steeple from a
+// green cube with the red pyramid on it, we use that pyramid, rather than
+// fetching one from the box.)
 Brain.leastTrouble = function(things)
 	hand = self.world.hand
 	scored = []
 	for t in things
 		cost = 0
-		if not refEquals(t, hand.holding) then
+		if not refEquals(t, hand.holding) and not self.onChosen(t) then
 			cost = 100
 			for other in self.world.things
 				if relations.binary.above(self.world, other, t) then cost += 100
@@ -954,6 +971,16 @@ Brain.leastTrouble = function(things)
 		result.push s.thing
 	end for
 	return result
+end function
+
+// Is this thing resting on something already picked for this sentence?
+Brain.onChosen = function(thing)
+	for picked in self.chosen.values
+		for s in thing.supporters
+			if containsRef(picked, s) then return true
+		end for
+	end for
+	return false
 end function
 
 // [commanded PickUp]: did the user tell us to do that to this thing?
@@ -1164,7 +1191,7 @@ end function
 // and if another sensible reading would mean something different, we say
 // which we assumed, as Winograd's robot did.
 Brain.hear = function(text)
-	r = meaning.understand(text, self.knownNames)
+	r = meaning.understand(text, self.knownNames, self.definitions.indexes)
 	self.lastUnderstanding = r      // for showing what happened under the hood
 	if r.error then return r.error
 	pick = self.pickReading(r)
@@ -1283,6 +1310,11 @@ Brain.checkStatement = function(statement, referents)
 			words.push var      // a word, like the name in "Name x1, superblock"
 			continue
 		end if
+		if statement.kind == "declare" and statement.verb == "define" then
+			// A definition isn't about anything in the world.
+			words.push var
+			continue
+		end if
 		item = self.lookup(var)
 		if item == null then break
 		if item.kind == "event" then
@@ -1291,7 +1323,9 @@ Brain.checkStatement = function(statement, referents)
 			words.push g.kind + "@" + timeValue(g.start)
 			continue
 		end if
-		if statement.kind == "command" then
+		if statement.kind == "command" and statement.verb == "build" then
+			things = self.buildParts(var)
+		else if statement.kind == "command" then
 			things = self.choose(var)
 		else
 			things = self.refer(var)
@@ -1399,4 +1433,135 @@ Brain.fitsDescription = function(thing, entry)
 	end for
 	entry.remove "checking"
 	return fits
+end function
+
+//----------------------------------------------------------------------
+// Definitions: words the user teaches us
+//----------------------------------------------------------------------
+
+// Is this a noun we know, either built in or taught?
+Brain.isNoun = function(word)
+	return relations.nouns.indexOf(word) != null or self.definitions.hasIndex(word)
+end function
+
+// "A 'steeple' is a stack which contains two green cubes and a pyramid."
+//   x1 = a stack [contains x4]  ...  Define steeple, x1
+// We keep the program the description is in, and from then on "steeple"
+// means anything that fits x1 (see definedThings).
+Brain.define = function(statement)
+	if statement.args.len != 2 or icl.isVar(statement.args[0]) or not icl.isVar(statement.args[1]) then
+		return self.fail("(Define needs a word and a description.)")
+	end if
+	word = statement.args[0]
+	d = self.lookup(statement.args[1])
+	if d == null then return null
+	if d.kind != "description" then return self.fail("I can only define a word as one kind of thing.")
+	if isDefinite(d) then
+		return self.fail("That sounds like one particular thing.  To give it a name, say ""Call it " + word + """.")
+	end if
+	if relations.nouns.indexOf(word) != null then return self.fail("I already know the word """ + word + """.")
+	self.definitions[word] = {"prog": self.prog, "var": statement.args[1]}
+	return "I understand."
+end function
+
+// The things a taught word fits: whatever fits its description, worked out
+// in the program that defined it.
+Brain.definedThings = function(word)
+	if self.expanding.hasIndex(word) then
+		return self.fail("(I went in circles: """ + word + """ is defined in terms of itself.)")
+	end if
+	def = self.definitions[word]
+	self.expanding[word] = true
+	saved = self.enter(def.prog)
+	result = self.candidates(def.var)
+	self.leave saved
+	self.expanding.remove word
+	return result
+end function
+
+// Work in another program (a definition's) for a while.  Returns what to
+// pass to leave, to get back.
+Brain.enter = function(prog)
+	saved = {"prog": self.prog, "cache": self.cache, "busy": self.busy,
+	  "bound": self.bound, "chosen": self.chosen, "used": self.used}
+	self.prog = prog
+	self.cache = {}
+	self.busy = {}
+	self.bound = null
+	self.chosen = {}
+	self.used = null
+	return saved
+end function
+
+Brain.leave = function(saved)
+	for kv in saved
+		self[kv.key] = kv.value
+	end for
+end function
+
+// "Build one" (meaning a steeple): stack up the things its definition says
+// a steeple contains.
+Brain.build = function(cmd)
+	if cmd.args.len != 1 then return self.fail("(Build needs one thing.)")
+	parts = self.buildParts(cmd.args[0])
+	if parts == null then return null
+	first = self.world.goals.len
+	problem = self.planner.achieve("stack", parts)
+	root = self.world.goals[first]
+	root.verb = cmd.verb
+	self.focus.event = root
+	if problem then return self.fail(problem)
+	// What we built is "it" now.
+	for s in relations.stacks(self.world)
+		if self.allIn(parts, s.parts) then self.focus.it = s
+	end for
+	self.focus.them = null
+	return "OK."
+end function
+
+// Are all of these things in that list?
+Brain.allIn = function(things, list)
+	for t in things
+		if not containsRef(list, t) then return false
+	end for
+	return true
+end function
+
+// What to stack up to build what a description describes.  We can build
+// stacks of given things, so the description must be a word we were
+// taught, meaning a stack that contains certain things.  We choose them as
+// we would for a command ("a pyramid" is one that's little trouble to get).
+Brain.buildParts = function(var)
+	d = self.lookup(var)
+	if d == null then return null
+	if d.kind != "description" or d.plural then return self.fail("I can only build one thing at a time.")
+	word = d.head
+	if word == "one" then word = self.antecedentNoun(d)
+	if word == "stack" then return self.fail("What should I stack up?")
+	if not self.definitions.hasIndex(word) then
+		return self.fail("Sorry, I don't know how to build " + speech.withArticle(word) + ".")
+	end if
+	def = self.definitions[word]
+	saved = self.enter(def.prog)
+	parts = self.stackParts(def.var, word)
+	self.leave saved
+	return parts
+end function
+
+// The things a stack description says it contains, chosen.
+Brain.stackParts = function(var, word)
+	d = self.lookup(var)
+	cantBuild = "Sorry, I don't know how to build " + speech.withArticle(word) + "."
+	if d.head != "stack" then return self.fail(cantBuild)
+	parts = []
+	for c in d.props
+		if c.pred != "contains" or c.args.len != 1 or not icl.isVar(c.args[0]) then return self.fail(cantBuild)
+		things = self.choose(c.args[0])
+		if things == null then return null
+		for t in things
+			if not containsRef(parts, t) then parts.push t
+		end for
+	end for
+	if parts.len < 2 then return self.fail(cantBuild)
+	return parts
 end function

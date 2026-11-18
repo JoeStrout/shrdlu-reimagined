@@ -127,17 +127,36 @@ end function
 
 // Turn text into tokens.  names is a list of names the robot has been
 // taught (like "superblock"), which are treated as names when they appear.
-tokenize = function(text, names=null)
+// nouns is a list of nouns it has been taught (like "steeple"), which may
+// appear in the singular or the plural.
+tokenize = function(text, names=null, nouns=null)
 	tokens = []
 	for w in joinPhrases(expandContractions(splitWords(text)))
 		t = {"text": w[0], "quoted": w[1], "entries": []}
 		if t.quoted or (names and names.indexOf(t.text) != null) then
 			t.entries.push {"cat": "name", "form": "base", "stem": t.text}
 		end if
-		if not t.quoted then t.entries += lexicon.lookup(t.text)
+		if not t.quoted then
+			t.entries += lexicon.lookup(t.text)
+			if nouns then t.entries += learnedNounEntries(t.text, nouns)
+		end if
 		tokens.push t
 	end for
 	return tokens
+end function
+
+// Entries for a word that's one of the nouns the robot was taught, or the
+// plural of one.
+learnedNounEntries = function(word, nouns)
+	result = []
+	if nouns.indexOf(word) != null then
+		result.push {"cat": "noun", "head": word, "form": "base", "stem": word}
+	end if
+	sp = icl.singularize(word)
+	if sp[1] and nouns.indexOf(sp[0]) != null then
+		result.push {"cat": "noun", "head": sp[0], "form": "plural", "stem": sp[0]}
+	end if
+	return result
 end function
 
 // The first word nobody knows, or null.
@@ -380,6 +399,14 @@ Parser.nounCore = function(pos)
 	end for
 	for n in self.word(pos, "name")
 		results.push result(node("NP", [n.tree]), n.next)
+	end for
+	// "Build one": the number one, standing for a noun said earlier.  (It's
+	// read as "one one", and "one" as a noun borrows from what came before.)
+	for d in self.word(pos, "det")
+		if d.tree.entry.det != "number" or d.tree.entry.n != 1 then continue
+		for n in self.word(pos, "noun")
+			if n.tree.entry.head == "one" then results.push result(node("NP", [d.tree, n.tree]), n.next)
+		end for
 	end for
 	for d in self.determinerPhrase(pos)
 		if d.tree and determinerInfo(d.tree).partitive then
@@ -808,7 +835,7 @@ end function
 // Every way to read a whole sentence starting here.
 Parser.sentence = function(pos)
 	return self.commandSentence(pos) + self.statementSentence(pos) +
-	  self.thereStatement(pos) + self.existsQuestion(pos) + self.whQuestion(pos) +
+	  self.thereStatement(pos) + self.defineStatement(pos) + self.existsQuestion(pos) + self.whQuestion(pos) +
 	  self.attributeQuestion(pos) + self.yesNoQuestion(pos) + self.canQuestion(pos) +
 	  self.didQuestion(pos) + self.eventQuestion(pos) + self.thanks(pos)
 end function
@@ -901,6 +928,24 @@ Parser.thereStatement = function(pos)
 			for np in self.nounPhrase(b.next)
 				for th in self.optionalWord(np.next, "then")
 					results.push result(sentenceNode("claim", [t.tree, b.tree, np.tree] + th.tree), th.next)
+				end for
+			end for
+		end for
+	end for
+	return results
+end function
+
+// Teaching a new word: "A "steeple" is a stack which contains two green
+// cubes and a pyramid."  The new word is in quotes, so it comes to us as a
+// name.
+Parser.defineStatement = function(pos)
+	results = []
+	for d in self.optionalWord(pos, "det")
+		if d.tree and d.tree[0].entry.det != "a" then continue
+		for n in self.word(d.next, "name")
+			for b in self.word(n.next, "be")
+				for np in self.nounPhrase(b.next)
+					results.push result(sentenceNode("define", d.tree + [n.tree, b.tree, np.tree]), np.next)
 				end for
 			end for
 		end for
@@ -1160,8 +1205,10 @@ end function
 // What may end a sentence: "please", a question mark.
 Parser.ending = function(pos)
 	results = []
-	for p in self.optionalWord(pos, "polite")
-		results += self.optionalWord(p.next, "punct")
+	for n in self.optionalWord(pos, "now")
+		for p in self.optionalWord(n.next, "polite")
+			results += self.optionalWord(p.next, "punct")
+		end for
 	end for
 	return results
 end function
@@ -1178,8 +1225,8 @@ end function
 
 // Parse a sentence.  Returns {trees, error}: every parse that covers the
 // whole text, best first, or an error message if there are none.
-parse = function(text, names=null)
-	tokens = tokenize(text, names)
+parse = function(text, names=null, nouns=null)
+	tokens = tokenize(text, names, nouns)
 	word = unknownWord(tokens)
 	if word then return {"trees": [], "error": "Sorry, I don't know the word """ + word + """."}
 	p = Parser.make(tokens)
@@ -1199,8 +1246,8 @@ end function
 // Parse text as a noun phrase (for testing the noun-phrase grammar).
 // Returns {trees, error}: every parse that covers the whole text, best
 // first, or an error message if there are none.
-parseNounPhrase = function(text, names=null)
-	tokens = tokenize(text, names)
+parseNounPhrase = function(text, names=null, nouns=null)
+	tokens = tokenize(text, names, nouns)
 	word = unknownWord(tokens)
 	if word then return {"trees": [], "error": "Sorry, I don't know the word """ + word + """."}
 	p = Parser.make(tokens)

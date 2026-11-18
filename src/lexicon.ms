@@ -126,7 +126,7 @@ end for
 
 // Nouns.  (These are the ones relations.nounFits understands, plus "one",
 // which borrows its noun from something said earlier.)
-for w in ["block", "cube", "pyramid", "cylinder", "box", "table", "thing", "object"]
+for w in ["block", "cube", "pyramid", "cylinder", "box", "table", "thing", "object", "stack"]
 	noun w
 end for
 noun "one"
@@ -238,6 +238,7 @@ command "empty", [frame("thing", "clearOff"), frame("out thing", "clearOff")]   
 command "get rid of", [frame("thing", "getRidOf")]
 command "stack", [frame("up thing", "stack"), frame("thing", "stack")]
 command "find", [frame("thing", "find")]
+command "build", [frame("thing", "build")]
 command "call", [frame("thing name", "name")]
 // "Touch" is only for questions so far: "Had you touched any pyramid...?"
 command "touch", [frame("thing", "touch")]
@@ -256,6 +257,7 @@ for w in ["why", "how", "when"]
 end for
 pronoun "what", "thing", "which"
 simple "there", "there"
+simple "now", "now"
 
 // Social niceties.
 add "thank you", {"cat": "thanks"}
