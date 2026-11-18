@@ -54,6 +54,8 @@
 // Verbs are stored in lower camel case ("putIn") and printed capitalized
 // ("PutIn").
 
+import "stringUtil"
+
 determiners = ["a", "the", "both", "any", "every", "no", "which", "how-many"]
 
 // Pronouns, and whether each one is plural.
@@ -117,10 +119,7 @@ isVar = function(word)
 	return isNumber(word[1:])
 end function
 
-// "pickUp" -> "PickUp", and back.
-capitalize = function(word)
-	return word[0].upper + word[1:]
-end function
+// "PickUp" -> "pickUp".  (The other way is word.capitalized, from stringUtil.)
 uncapitalize = function(word)
 	return word[0].lower + word[1:]
 end function
@@ -130,8 +129,23 @@ end function
 // only the usual rules apply.)
 irregularSingular = {}
 irregularPlural = {}
+
+// Read a text file as a list of lines, or return null if we can't.  The
+// command line (where the tests run) and the desktop have the `file` module;
+// the web build doesn't, but raylib can read files there (from the package
+// the page downloads).
+// (`file` and `raylib` are intrinsics, not entries in `globals`, so we ask
+// which platform we're on rather than whether they exist.)
+readLines = function(path)
+	if not (version.hasIndex("platform") and version.platform == "Web") then
+		return file.readLines(path)
+	end if
+	text = raylib.LoadFileText(path)
+	if text == null then return null
+	return text.replace(char(13), "").split(char(10))
+end function
 loadIrregularPlurals = function(path="assets/irregularPlurals.txt")
-	lines = file.readLines(path)
+	lines = readLines(path)
 	if not (lines isa list) then return
 	for line in lines
 		words = line.split(" ")
@@ -359,17 +373,17 @@ format = function(item)
 	else if item.kind == "group" then
 		return item.var + " = " + item.members.join(" " + item.join + " ")
 	else if item.kind == "event" then
-		s = item.var + " = event " + capitalize(item.verb)
+		s = item.var + " = event " + item.verb.capitalized
 		if item.args then s += " " + formatArgs(item.args)
 		return s + formatProps(item.props)
 	else if item.kind == "command" or item.kind == "declare" then
-		s = capitalize(item.verb)
+		s = item.verb.capitalized
 		if item.args then s += " " + formatArgs(item.args)
 		return s
 	else if item.kind == "ask" or item.kind == "claim" then
 		q = item.q
 		if q == "attribute" then q = item.attr
-		s = capitalize(item.kind) + " " + q + " " + item.target
+		s = item.kind.capitalized + " " + q + " " + item.target
 		if item.claim then s += " " + formatConstraint(item.claim)
 		return s
 	end if
@@ -627,7 +641,7 @@ Reader.readLine = function
 	end if
 	// A lowercase word here was probably meant as Ask or a command.
 	if first != null and first != "[" and not isVar(first) then
-		return self.fail("don't know what to do with """ + first + """ (Ask and commands start with a capital letter: """ + capitalize(first) + """)")
+		return self.fail("don't know what to do with """ + first + """ (Ask and commands start with a capital letter: """ + first.capitalized + """)")
 	end if
 	return self.fail("don't know what to do with """ + first + """")
 end function

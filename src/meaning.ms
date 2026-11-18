@@ -15,6 +15,7 @@
 
 import "icl"
 import "parser"
+import "stringUtil"
 
 Meaning = {}
 
@@ -26,6 +27,7 @@ Meaning.make = function
 	m.describing = []  // the descriptions being built, outermost first
 	m.itTarget = null  // to take "it" as an earlier noun phrase: its index in phrases
 	m.itOptions = null // the earlier noun phrases "it" could have meant (see itReadings)
+	m.whichSubject = null  // in "which block is ...?", the block's variable (see sideConstraint)
 	return m
 end function
 
@@ -180,6 +182,7 @@ end function
 Meaning.constraintFor = function(tree)
 	if tree.cat == "adj" then return self.adjectiveConstraint(tree)
 	if tree.cat == "mine" then return ownedBy(tree.entry.owner)     // "is mine" -> [owned]
+	if tree.cat == "side" then return self.sideConstraint(tree.entry.side)
 	if tree.cat == "PP" or tree.cat == "CMP" then
 		// "on the table" -> [on x2];  "taller than it" -> [taller x2]
 		relation = tree.parts[0].entry.pred
@@ -210,9 +213,43 @@ Meaning.constraintFor = function(tree)
 	if tree.cat == "REL" or tree.cat == "WH" then return self.clauseConstraint(tree)
 	if tree.cat == "CMD" then
 		// "(the one which) I told you to pick up" -> [commanded PickUp]
-		return icl.constraint("commanded", [icl.capitalize(tree.frame.icl)])
+		return icl.constraint("commanded", [tree.frame.icl.capitalized])
 	end if
 	return null
+end function
+
+// "On the left", "at the back": a side, with nothing to be the side of.
+// What that means depends on how it's used.
+//
+// "The red block on the left" picks one of the red blocks by contrast with
+// the others: the leftmost one, wherever it is.  (With two red blocks both
+// at the right end of the table, it's still the one further left.)  So in
+// a definite, singular noun phrase it means [leftmost].
+//
+// The same goes for "Which red block is on the left?": one of them, by
+// contrast with the others.  (But "What is on the left?" asks about the side
+// of the table; see below.)
+//
+// Otherwise, "a block on the left", "blocks at the back", "is it on the
+// left?", it means the left side of the table, just as "on the left side
+// of the table" does: [leftOf x2], x2 = the table.
+superlativeForSide = {"left": "leftmost", "right": "rightmost", "front": "frontmost", "back": "backmost"}
+prepForSide = {"left": "leftOf", "right": "rightOf", "front": "inFrontOf", "back": "behind"}
+Meaning.sideConstraint = function(side)
+	if self.describing then
+		d = self.prog.lookup(self.describing[-1])
+		if d.kind == "description" and d.det == "the" and not d.plural then
+			return icl.constraint(superlativeForSide[side])
+		end if
+	end if
+	if self.whichSubject then
+		d = self.prog.lookup(self.whichSubject)
+		if d.det == "which" and not d.plural and d.head != "thing" then
+			return icl.constraint(superlativeForSide[side])
+		end if
+	end if
+	table = self.prog.add(icl.description("the", "table", false))
+	return icl.constraint(prepForSide[side], [table])
 end function
 
 // Predicates joined by "and" or "but": "red and on the table", "green but
@@ -348,7 +385,9 @@ Meaning.sentence = function(s)
 			// "What did you have to move to do that?"
 			c = self.didConstraint(var, cmds[0], times, parser.partsOfCat(wh, "PURPOSE"))
 		else
+			self.whichSubject = var     // for "which block is on the left?"
 			c = self.constraintFor(wh)
+			self.whichSubject = null
 			// "What did the red cube support before you started to clean
 			// it off?" asks about then, not now.
 			if c then
@@ -451,7 +490,7 @@ Meaning.ownership = function(own)
 	verb = "own"
 	verbs = parser.partsOfCat(own, "verb")
 	if verbs then verb = verbs[0].entry.attitude
-	if parser.partsOfCat(own, "not") then verb = "dont" + icl.capitalize(verb)
+	if parser.partsOfCat(own, "not") then verb = "dont" + verb.capitalized
 	args = [self.describe(parser.partsOfCat(own, "NP")[0])]
 	mine = parser.partsOfCat(own, "mine")
 	if parser.partsOfCat(own, "you") or (mine and mine[0].entry.owner == "you") then args.push "you"

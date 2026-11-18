@@ -13,6 +13,8 @@
 //                for words like "littlest" and "clear"
 //   comparative  {pred}: "taller" (than ...) gives [taller x2]
 //   prep         {pred}: "on", "behind", "on top of" ...
+//   side         {side}: "on the left", "at the back" ... (a place, with no
+//                "of" after it; see Meaning.sideConstraint)
 //   relpro       a relative pronoun: "which", "that", "who"
 //   be           "is", "are" ...
 //   not          "not"
@@ -44,6 +46,7 @@
 // inflected (or "base" when it wasn't).
 
 import "icl"
+import "listUtil"
 
 words = {}       // word -> list of entries
 phrases = []     // the multi-word entries, each a list of words, longest first
@@ -156,9 +159,11 @@ end for
 for w in ["small", "little", "tiny"]
 	adjective w, "size", "small"
 end for
-for w in ["biggest", "largest", "smallest", "littlest", "tallest", "shortest", "widest", "narrowest"]
+for w in ["biggest", "largest", "smallest", "littlest", "tallest", "shortest", "widest", "narrowest",
+  "leftmost", "rightmost", "frontmost", "backmost"]
 	add w, {"cat": "adj", "pred": w, "value": null, "superlative": true}
 end for
+add "rearmost", {"cat": "adj", "pred": "backmost", "value": null, "superlative": true}
 // Tall, short, wide and narrow are relative, like big and small.
 adjective "tall", "height", "tall"
 adjective "short", "height", "short"
@@ -238,6 +243,24 @@ for w in ["at the front of", "to the front of", "in the front of", "on the front
 end for
 for w in ["at the back of", "to the back of", "in the back of", "on the back of", "toward the back of", "towards the back of"]
 	preposition w, "behind"
+end for
+
+// A side, with no "of" after it: "the one on the left", "a block at the
+// back".  (With "of", these are prepositions, above; the tokenizer tries
+// the longest phrase first, so "on the left of" isn't taken for "on the
+// left" followed by "of".)
+sides = {
+  "left": ["on the left", "at the left", "to the left", "on the left side", "on the left hand side",
+    "at the left side", "on the far left", "at the far left", "to the far left"],
+  "right": ["on the right", "at the right", "to the right", "on the right side", "on the right hand side",
+    "at the right side", "on the far right", "at the far right", "to the far right"],
+  "front": ["at the front", "in front", "in the front", "on the front side", "toward the front", "towards the front"],
+  "back": ["at the back", "in the back", "in back", "at the rear", "in the rear", "on the back side",
+    "toward the back", "towards the back", "at the far back"]}
+for side in sides.indexes
+	for w in sides[side]
+		add w, {"cat": "side", "side": side}
+	end for
 end for
 
 // Verbs.
@@ -527,9 +550,9 @@ entriesFor = function(word, form, kinds=null)
 	result = []
 	if not words.hasIndex(word) then return result
 	for e in words[word]
-		if kinds == null or kinds.indexOf(e.cat) != null then
+		if kinds == null or kinds.contains(e.cat) then
 			found = e + {"form": form, "stem": word}
-			if not hasEntry(result, found) then result.push found
+			if not result.contains(found) then result.push found
 		end if
 	end for
 	return result
@@ -543,15 +566,6 @@ stemsFor = function(word, ending)
 	result = [stem, stem + "e"]
 	if stem.len > 2 and stem[-1] == stem[-2] then result.push stem[:-1]   // sitting
 	return result
-end function
-
-// Is an equal entry already in the list?  ("uses" is "use" + "s", but also
-// "use" + "es"; that shouldn't make two entries.)
-hasEntry = function(list, entry)
-	for e in list
-		if e == entry then return true
-	end for
-	return false
 end function
 
 // Every entry a word could have, including inflected forms: "blocks" is a
@@ -570,7 +584,9 @@ lookup = function(word)
 		if ending == "es" then form = "s"
 		for stem in stemsFor(word, ending)
 			for e in entriesFor(stem, form, ["verb"])
-				if not hasEntry(result, e) then result.push e
+				// (An equal entry can turn up twice: "uses" is "use" + "s",
+				// but also "use" + "es".  Keep just one.)
+				if not result.contains(e) then result.push e
 			end for
 		end for
 	end for

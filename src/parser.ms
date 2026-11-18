@@ -652,7 +652,7 @@ end function
 // What can follow a noun to say more about it.
 Parser.modifier = function(pos)
 	return self.prepPhrase(pos) + self.comparison(pos) + self.relativeClause(pos) + self.ingClause(pos) +
-	  self.coloredPhrase(pos)
+	  self.coloredPhrase(pos) + self.word(pos, "side")
 end function
 
 // "(blocks) colored red", "colored red or blue": a COLORED node with the
@@ -818,7 +818,7 @@ Parser.morePredicates = function(pos, items)
 	return results
 end function
 
-// What can follow "is": an adjective, a place, a comparison, a posture
+// What can follow "is": an adjective, a place (or a side: "on the left"), a comparison, a posture
 // with a place ("sitting on the table"), or "the" and a superlative ("the
 // biggest").
 Parser.predicate = function(pos)
@@ -842,6 +842,7 @@ Parser.predicate = function(pos)
 	end for
 	results += self.word(pos, "mine")
 	results += self.prepPhrase(pos)
+	results += self.word(pos, "side")     // "(is) on the left"
 	results += self.comparison(pos)
 	for v in self.wordWith(pos, "verb", "posture")
 		if v.tree.entry.form != "ing" then continue

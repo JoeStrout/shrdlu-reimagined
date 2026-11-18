@@ -1,13 +1,16 @@
 // textInput.ms
 //
-// A one-line text field: you type, it shows what you typed with a blinking
-// cursor, and pressing Return hands the line over.  It knows nothing about
-// what the text means, so any console can use it.
+// A text field for one line of input: you type, it shows what you typed
+// with a blinking cursor, and pressing Return hands the line over.  A line
+// too long for the field wraps onto more rows, and the field grows taller
+// (up to maxRows, after which it scrolls).  It knows nothing about what the
+// text means, so any console can use it.
 //
 // Usage, once per frame:
 //
 //   line = field.update          // read the keyboard; the line, on Return
 //   if line != null then ...     // (otherwise null)
+//   h = field.heightFor(width)   // how tall it will be, for layout
 //   field.draw x, y, width
 //
 // Keys (on a Mac, Cmd works wherever Ctrl is listed):
@@ -15,8 +18,12 @@
 //   Home/End            start or end of line   Ctrl-A, Ctrl-E   the same
 //   Backspace/Delete    delete a character     Alt-Backspace    delete a word
 //   Ctrl-U, Ctrl-K      delete to the start, or to the end, of the line
-//   Up/Down             earlier lines you entered (the history)
+//   Up/Down             the row above or below; from the top or bottom row,
+//                       earlier lines you entered (the history)
 //   Ctrl-V              paste                  Escape           clear the line
+
+import "uiText"
+import "mathUtil"
 
 rl = raylib
 
@@ -26,8 +33,10 @@ TextInput.cursor = 0           // where the next character goes, 0 to text.len
 TextInput.prompt = "> "
 TextInput.placeholder = ""     // shown, dimmed, while the field is empty
 TextInput.focused = true       // only a focused field reads the keyboard
-TextInput.fontSize = 20
+TextInput.fontSize = 16
+TextInput.lineGap = 4          // extra space between rows
 TextInput.padding = 6
+TextInput.maxRows = 6          // grow to this many rows, then scroll
 TextInput.maxHistory = 100
 TextInput.newlineReplacement = " "   // what a pasted line break becomes
 TextInput.style = {
@@ -40,13 +49,10 @@ TextInput.make = function(placeholder="")
 	f.history = []        // lines entered so far, oldest first
 	f.historyPos = 0      // which history line is showing; history.len means none
 	f.draft = ""          // what was being typed before browsing the history
-	f.scrollX = 0         // how far the text is scrolled left, in pixels
+	f.scrollRow = 0       // the first row shown, when there are more than maxRows
 	f.blinkStart = 0      // when the cursor last moved (it stays lit while moving)
+	f.layout = null       // how the text was last wrapped (see layoutFor)
 	return f
-end function
-
-TextInput.height = function
-	return self.fontSize + 2 * self.padding
 end function
 
 //----------------------------------------------------------------------
@@ -71,9 +77,7 @@ TextInput.insert = function(s)
 end function
 
 TextInput.moveTo = function(i)
-	if i < 0 then i = 0
-	if i > self.text.len then i = self.text.len
-	self.cursor = i
+	self.cursor = mathUtil.clamp(i, 0, self.text.len)
 	self.touched
 end function
 
@@ -151,7 +155,7 @@ TextInput.submit = function
 	self.historyPos = self.history.len
 	self.draft = ""
 	self.setText ""
-	self.scrollX = 0
+	self.scrollRow = 0
 	return line
 end function
 
@@ -212,12 +216,89 @@ TextInput.update = function
 		if alt then self.deleteWordBack else self.deleteBack
 	end if
 	if pressed(rl.KEY_DELETE) then self.deleteForward
-	if pressed(rl.KEY_UP) then self.browseHistory -1
-	if pressed(rl.KEY_DOWN) then self.browseHistory 1
+	if pressed(rl.KEY_UP) then self.upOrDown -1
+	if pressed(rl.KEY_DOWN) then self.upOrDown 1
 	if rl.IsKeyPressed(rl.KEY_ESCAPE) then self.setText ""
 
 	if rl.IsKeyPressed(rl.KEY_ENTER) or rl.IsKeyPressed(rl.KEY_KP_ENTER) then return self.submit
 	return null
+end function
+
+// Up (-1) or Down (+1): within a wrapped line, move to the row above or
+// below, keeping about the same horizontal position.  From the top row
+// (going up) or the bottom row (going down), step through the history
+// instead, as in a terminal.
+TextInput.upOrDown = function(direction)
+	lay = self.layout
+	if lay == null or lay.text != self.text or self.text == "" then
+		self.browseHistory direction
+		return
+	end if
+	row = self.rowOf(self.cursor)
+	target = row + direction
+	if target < 0 or target >= lay.rows.len then
+		self.browseHistory direction
+		return
+	end if
+	// Find the spot in the target row nearest the cursor's x position.
+	x = self.xInRow(row, self.cursor)
+	r = lay.rows[target]
+	best = r[0]
+	for i in range(r[0], r[1])
+		if i == r[1] and target < lay.rows.len - 1 then break   // that's the next row's start
+		if abs(self.xInRow(target, i) - x) < abs(self.xInRow(target, best) - x) then best = i
+	end for
+	self.moveTo best
+end function
+
+//----------------------------------------------------------------------
+// Layout: wrapping the text into rows.  The prompt sits at the start of the
+// first row, and later rows line up under the text, not under the prompt.
+//----------------------------------------------------------------------
+
+// What's shown: the text, or the placeholder while there's none.
+TextInput.shownText = function
+	if self.text == "" then return self.placeholder
+	return self.text
+end function
+
+// Wrap the text for a field of the given width; remembered, so that this is
+// cheap from frame to frame.  Returns {text, width, rows}, where rows is a
+// list of [start, stop] positions in the text (see uiText.wrapRanges).
+TextInput.layoutFor = function(width)
+	lay = self.layout
+	shown = self.shownText
+	if lay and lay.width == width and lay.text == self.text and lay.shown == shown then return lay
+	room = width - 2 * self.padding - uiText.measure(self.prompt, self.fontSize)
+	self.layout = {"text": self.text, "shown": shown, "width": width,
+	  "rows": uiText.wrapRanges(shown, room - 4, self.fontSize)}
+	return self.layout
+end function
+
+// Which row the given text position is in.  A position right at a break
+// belongs to the row it starts (except at the very end of the text).
+TextInput.rowOf = function(pos)
+	rows = self.layout.rows
+	for i in rows.indexes
+		if pos < rows[i][1] or i == rows.len - 1 then return i
+	end for
+end function
+
+// How far across its row the given position is, in screen points.
+TextInput.xInRow = function(row, pos)
+	start = self.layout.rows[row][0]
+	return uiText.measure(self.text[start:pos], self.fontSize)
+end function
+
+TextInput.rowHeight = function
+	return self.fontSize + self.lineGap
+end function
+
+// How tall the field will be at the given width (it grows with the text).
+TextInput.heightFor = function(width)
+	n = self.layoutFor(width).rows.len
+	if n > self.maxRows then n = self.maxRows
+	return n * self.rowHeight - self.lineGap + 2 * self.padding
 end function
 
 //----------------------------------------------------------------------
@@ -227,32 +308,39 @@ end function
 TextInput.draw = function(x, y, width)
 	fs = self.fontSize
 	pad = self.padding
-	h = self.height
+	h = self.heightFor(width)
+	lay = self.layout
 	st = self.style
 	rl.DrawRectangle x, y, width, h, st.background
 	if self.focused then border = st.focusedBorder else border = st.border
 	rl.DrawRectangleLines x, y, width, h, border
 
-	promptWidth = rl.MeasureText(self.prompt, fs)
-	rl.DrawText self.prompt, x + pad, y + pad, fs, st.prompt
+	promptWidth = uiText.measure(self.prompt, fs)
+	uiText.draw self.prompt, x + pad, y + pad, fs, st.prompt
 	textX = x + pad + promptWidth
-	room = width - 2 * pad - promptWidth
 
-	// Scroll sideways as needed to keep the cursor in view.
-	cursorX = rl.MeasureText(self.text[:self.cursor], fs)
-	if cursorX - self.scrollX > room - 4 then self.scrollX = cursorX - room + 4
-	if cursorX < self.scrollX then self.scrollX = cursorX
-	if self.scrollX < 0 then self.scrollX = 0
+	// If there are more rows than fit, scroll to keep the cursor's row in view.
+	cursorRow = self.rowOf(self.cursor)
+	if self.text == "" then cursorRow = 0
+	if cursorRow < self.scrollRow then self.scrollRow = cursorRow
+	if cursorRow >= self.scrollRow + self.maxRows then self.scrollRow = cursorRow - self.maxRows + 1
+	if self.scrollRow > lay.rows.len - self.maxRows then self.scrollRow = lay.rows.len - self.maxRows
+	if self.scrollRow < 0 then self.scrollRow = 0
 
-	rl.BeginScissorMode textX, y, room, h
-	if self.text == "" then
-		rl.DrawText self.placeholder, textX, y + pad, fs, st.placeholder
-	else
-		rl.DrawText self.text, textX - self.scrollX, y + pad, fs, st.text
-	end if
-	// The cursor blinks, but stays lit while you're typing.
-	if self.focused and (rl.GetTime - self.blinkStart) % 1 < 0.6 then
-		rl.DrawRectangle textX + cursorX - self.scrollX, y + pad - 1, 2, fs + 2, st.cursor
-	end if
-	rl.EndScissorMode
+	if self.text == "" then color = st.placeholder else color = st.text
+	shown = self.shownText
+	rowY = y + pad
+	lastRow = self.scrollRow + self.maxRows - 1
+	if lastRow >= lay.rows.len then lastRow = lay.rows.len - 1
+	for i in range(self.scrollRow, lastRow)
+		r = lay.rows[i]
+		uiText.draw shown[r[0]:r[1]], textX, rowY, fs, color
+		// The cursor blinks, but stays lit while you're typing.
+		if i == cursorRow and self.focused and (rl.GetTime - self.blinkStart) % 1 < 0.6 then
+			cx = 0
+			if self.text != "" then cx = self.xInRow(i, self.cursor)
+			rl.DrawRectangle textX + cx, rowY - 1, 2, fs + 2, st.cursor
+		end if
+		rowY += self.rowHeight
+	end for
 end function

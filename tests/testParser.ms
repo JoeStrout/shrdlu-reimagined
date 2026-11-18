@@ -124,6 +124,13 @@ expectNP "the blue block in the box", "x1 = the block [color blue] [in x2]; x2 =
 expectNP "a block behind a pyramid", "x1 = a block [behind x2]; x2 = a pyramid"
 expectNP "the red cube to the left of the box", "x1 = the cube [color red] [leftOf x2]; x2 = the box"
 expectNP "a block taller than the box", "x1 = a block [taller x2]; x2 = the box"
+// A side with no "of": by contrast in "the ... on the left", otherwise a
+// side of the table.
+expectNP "the red block on the left", "x1 = the block [color red] [leftmost]"
+expectNP "the one at the back", "x1 = the one [backmost]"
+expectNP "a block on the right", "x1 = a block [rightOf x2]; x2 = the table"
+expectNP "blocks in front", "x1 = any blocks [inFrontOf x2]; x2 = the table"
+expectNP "the rightmost pyramid", "x1 = the pyramid [rightmost]"
 expectNP "the one you are holding", "x1 = the one [held]"
 expectNP "the one which you are holding", "x1 = the one [held]"
 expectNP "a block which is taller than the one you are holding",

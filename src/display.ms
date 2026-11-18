@@ -13,6 +13,9 @@
 
 import "geometry"
 import "world"
+import "uiText"
+import "mathUtil"
+import "listUtil"
 
 rl = raylib
 
@@ -37,6 +40,13 @@ end function
 travelSpeed = 10    // hand moving across the table
 liftSpeed = 7       // hand moving up or down
 tumbleTime = 1.1    // seconds for a toppling object to fall
+gripTime = 0.25     // seconds to open the fingers before reaching for something
+
+// The hand's fingers: how far apart they are (the gap between them).
+restingGap = 0.9    // when it hasn't held anything yet
+gripClearance = 0.1 // extra room around a thing it's holding
+reachClearance = 0.5  // extra room when reaching down for a thing, so the
+                      // fingers clear it on the way down
 
 //======================================================================
 // Little vector helpers (3D points are [x, y, z] lists).
@@ -142,20 +152,14 @@ CameraRig.camera = function
 	  "up": [0, 1, 0], "fovy": 40, "projection": rl.CAMERA_PERSPECTIVE}
 end function
 
-clamp = function(x, lo, hi)
-	if x < lo then return lo
-	if x > hi then return hi
-	return x
-end function
-
 // Turn the camera by a mouse movement (in pixels).
 CameraRig.orbit = function(dx, dy)
-	self.yaw = clamp(self.yaw - dx * 0.006, self.minYaw, self.maxYaw)
-	self.pitch = clamp(self.pitch + dy * 0.006, self.minPitch, self.maxPitch)
+	self.yaw = mathUtil.clamp(self.yaw - dx * 0.006, self.minYaw, self.maxYaw)
+	self.pitch = mathUtil.clamp(self.pitch + dy * 0.006, self.minPitch, self.maxPitch)
 end function
 
 CameraRig.zoom = function(wheel)
-	self.distance = clamp(self.distance - wheel * 1.2, self.minDistance, self.maxDistance)
+	self.distance = mathUtil.clamp(self.distance - wheel * 1.2, self.minDistance, self.maxDistance)
 end function
 
 //======================================================================
@@ -174,11 +178,13 @@ Display.make = function(theWorld)
 	end for
 	d.handPos = theWorld.hand.pos[:]    // where the hand is drawn
 	d.carried = theWorld.hand.holding   // what's drawn in the hand
+	d.gap = restingGap                  // the fingers' gap, when not holding anything
 	d.tumble = null                     // a falling object, if any
 	d.steps = []                        // animation steps waiting to play
 	d.nextEvent = theWorld.history.len  // the next history event to animate
 	d.selected = null                   // the thing the user clicked on
 	d.preview = null                    // a placement to show (see drawPreview)
+	d.rect = null                       // where in the window it was last drawn
 	return d
 end function
 
@@ -192,6 +198,7 @@ end function
 //
 // Each world event becomes a few simple steps, played one after another:
 //   "hand"    move the hand smoothly to a point
+//   "open"    spread the fingers to a given gap
 //   "attach"  the hand grips a thing (it's drawn in the hand from now on)
 //   "detach"  the hand lets go of a thing, leaving it at a given position
 //   "tumble"  a thing topples off where it was put, and falls
@@ -204,6 +211,8 @@ Display.queueEvent = function(event)
 		self.steps.push {"kind": "hand", "to": event.to, "speed": travelSpeed}
 	else if event.action == "grasp" then
 		t = event.thing; p = event.from
+		// Open wide enough to clear the thing before going down for it.
+		self.steps.push {"kind": "open", "gap": t.width + reachClearance, "duration": gripTime}
 		self.steps.push {"kind": "hand", "to": [p[0], p[1] + t.height, p[2]], "speed": liftSpeed}
 		self.steps.push {"kind": "attach", "thing": t}
 		self.steps.push {"kind": "hand", "to": [p[0], cruise, p[2]], "speed": liftSpeed}
@@ -249,6 +258,8 @@ Display.startStep = function(step)
 	if step.kind == "hand" then
 		step.from = self.handPos[:]
 		step.duration = distance3(step.from, step.to) / step.speed
+	else if step.kind == "open" then
+		step.fromGap = self.gap
 	else if step.kind == "tumble" then
 		self.startTumble step
 	end if
@@ -257,10 +268,15 @@ end function
 Display.applyStep = function(step, f)
 	if step.kind == "hand" then
 		self.handPos = lerp3(step.from, step.to, smooth(f))
+	else if step.kind == "open" then
+		self.gap = step.fromGap + (step.gap - step.fromGap) * smooth(f)
 	else if step.kind == "attach" then
 		self.carried = step.thing
 		self.tumble = null
 	else if step.kind == "detach" then
+		// The fingers stay where they were when they let go, so they don't
+		// close into the thing on the way back up.
+		self.gap = step.thing.width + gripClearance
 		self.carried = null
 		self.shownPos[step.thing.id] = step.pos[:]
 	else if step.kind == "tumble" then
@@ -403,8 +419,8 @@ Display.drawArm = function
 	rodBottom = h[1] + 0.35
 	drawBox [h[0], (rodTop + rodBottom) / 2, h[2]], [0.15, rodTop - rodBottom, 0.15], colors.metal
 	// The hand: a palm and two fingers, which close on whatever it holds.
-	gap = 0.9
-	if self.carried then gap = self.carried.width + 0.1
+	gap = self.gap
+	if self.carried then gap = self.carried.width + gripClearance
 	drawBox [h[0], h[1] + 0.175, h[2]], [gap + 0.35, 0.35, 0.55], "#5A626C"
 	for side in [-1, 1]
 		drawBox [h[0] + side * (gap/2 + 0.06), h[1] - 0.3, h[2]], [0.12, 0.6, 0.45], "#5A626C"
@@ -425,7 +441,14 @@ end function
 // Return {"thing": t, "point": [x,y,z]} for the nearest thing under the
 // mouse (the table counts), or null if there's nothing there.
 Display.pick = function(mousePos)
-	ray = rl.GetScreenToWorldRay(mousePos, self.rig.camera)
+	r = self.rect
+	if r == null then
+		ray = rl.GetScreenToWorldRay(mousePos, self.rig.camera)
+	else
+		// The mouse position within our rectangle of the window.
+		pos = {"x": mousePos.x - r.x, "y": mousePos.y - r.y}
+		ray = rl.GetScreenToWorldRayEx(pos, self.rig.camera, r.w, r.h)
+	end if
 	best = null
 	bestDistance = 999999
 	for t in self.world.things
@@ -477,9 +500,15 @@ end function
 // Drawing everything.
 //----------------------------------------------------------------------
 
-Display.draw = function
-	rl.ClearBackground colors.background
+// Draw the view into a rectangle of the window (in screen points, from
+// the top left).  With no rectangle, it fills the window.
+Display.draw = function(x=0, y=0, w=null, h=null)
+	if w == null then w = rl.GetScreenWidth - x
+	if h == null then h = rl.GetScreenHeight - y
+	self.rect = {"x": x, "y": y, "w": w, "h": h}
+	rl.DrawRectangle x, y, w, h, colors.background
 	rl.BeginMode3D self.rig.camera
+	self.useViewport
 	self.drawTable
 	for t in self.world.things
 		if t.shape == "table" then continue
@@ -496,51 +525,80 @@ Display.draw = function
 	end if
 	self.drawPreview
 	rl.EndMode3D
+	self.restoreViewport
 	self.drawOverlay
 end function
 
-// Text drawn over the 3D view: the title, help, and what's selected.
+// raylib's BeginMode3D draws to the whole window, with the window's shape.
+// To draw into just our rectangle, we point the GPU at that part of the
+// window (the "viewport"), and set up the camera's perspective again for the
+// rectangle's shape, so that the scene isn't stretched.  (This must come
+// right after BeginMode3D, before anything is drawn.)
+Display.useViewport = function
+	r = self.rect
+	rl.rlDrawRenderBatchActive
+	// The viewport is in real pixels, which on a Retina screen are smaller
+	// than screen points, and it's measured from the bottom of the window.
+	scale = rl.GetRenderWidth / rl.GetScreenWidth
+	rl.rlViewport round(r.x * scale), round((rl.GetScreenHeight - r.y - r.h) * scale),
+	  round(r.w * scale), round(r.h * scale)
+	// The same perspective BeginMode3D uses, for our aspect ratio.
+	cam = self.rig.camera
+	near = 0.05
+	top = near * tan(cam.fovy * pi / 360)
+	right = top * r.w / r.h
+	rl.rlMatrixMode rl.RL_PROJECTION
+	rl.rlLoadIdentity
+	rl.rlFrustum -right, right, -top, top, near, 1000
+	rl.rlMatrixMode rl.RL_MODELVIEW
+end function
+
+// Back to drawing on the whole window (for the 2D drawing that follows).
+Display.restoreViewport = function
+	rl.rlViewport 0, 0, rl.GetRenderWidth, rl.GetRenderHeight
+end function
+
+// Is a screen point over the view?
+Display.contains = function(point)
+	r = self.rect
+	if r == null then return true
+	return point.x >= r.x and point.x < r.x + r.w and point.y >= r.y and point.y < r.y + r.h
+end function
+
+// Text drawn over the 3D view: what's selected, in the top right.
 // (The robot's messages are in the console; see console.ms.)
 Display.drawOverlay = function
-	sw = rl.GetScreenWidth
-	rl.DrawText "SHRDLU Reimagined", 16, 12, 24, colors.text
-
-	// About the selected thing, top right.
-	if self.selected then
-		t = self.selected
-		lines = [t.description + "  (" + t.id + ")",
-		  "size " + t.size.join(" x "),
-		  "at " + t.pos.join(", ")]
-		on = []
-		for s in t.supporters
-			on.push s.id
-		end for
-		if refEquals(t, self.world.hand.holding) then
-			lines.push "in the hand"
-		else
-			lines.push "on " + on.join(", ")
-		end if
-		above = []
-		for s in self.world.thingsOn(t)
-			above.push s.id
-		end for
-		if above then lines.push "supports " + above.join(", ")
-		x = sw - 300
-		rl.DrawRectangle x - 12, 8, 300, 24 * lines.len + 12, colors.panel
-		y = 14
-		for line in lines
-			rl.DrawText line, x, y, 20, colors.text
-			y += 24
-		end for
+	if not self.selected then return
+	r = self.rect
+	t = self.selected
+	lines = [t.description + "  (" + t.id + ")",
+	  "size " + t.size.join(" x "),
+	  "at " + t.pos.join(", ")]
+	on = []
+	for s in t.supporters
+		on.push s.id
+	end for
+	if refEquals(t, self.world.hand.holding) then
+		lines.push "in the hand"
+	else
+		lines.push "on " + on.join(", ")
 	end if
-
-	// Help, top left under the title.
-	help = ["Click: select (""this"")   Click (holding): put down",
-	  "Shift-click: put down even if it won't balance",
-	  "Drag or right-drag: turn view   Wheel: zoom   /help: more"]
-	y = 42
-	for line in help
-		rl.DrawText line, 16, y, 16, colors.dimText
-		y += 20
+	above = []
+	for s in self.world.thingsOn(t)
+		above.push s.id
+	end for
+	if above then lines.push "supports " + above.join(", ")
+	fs = 16
+	widths = []
+	for line in lines
+		widths.push uiText.measure(line, fs)
+	end for
+	width = widths.max
+	x = r.x + r.w - width - 20
+	rl.DrawRectangle x - 10, r.y + 8, width + 20, (fs + 4) * lines.len + 12, colors.panel
+	y = r.y + 14
+	for line in lines
+		uiText.draw line, x, y, fs, colors.text
+		y += fs + 4
 	end for
 end function

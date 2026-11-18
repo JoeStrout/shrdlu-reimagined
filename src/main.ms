@@ -16,6 +16,7 @@ import "display"
 import "brain"
 import "console"
 import "sessionLog"
+import "uiText"
 
 rl = raylib
 
@@ -32,6 +33,7 @@ rl.SetWindowTitle "SHRDLU Reimagined"
 rl.SetTargetFPS 60
 rl.SetExitKey rl.KEY_NULL    // Escape clears the console's line instead
 display.setup
+uiText.load "assets/DejaVuSans.ttf"
 
 // The current world, the display showing it, and the console for talking
 // to the robot.  (A new scene gets a new world and a new brain; the console
@@ -42,7 +44,11 @@ con = console.Console.make
 // On the desktop, keep a log of the session (see sessionLog.ms).
 con.log = sessionLog.SessionLog.make
 
-consoleHeight = 260
+// The layout: the console down the left side, a third of the window
+// wide, and the 3D view in the rest.
+consoleWidth = function
+	return round(rl.GetScreenWidth / 3)
+end function
 
 loadScene = function(name)
 	globals.theWorld = world.World.make
@@ -116,7 +122,8 @@ while not rl.WindowShouldClose
 	con.update view.isBusy
 
 	// Mouse: a left click selects or places; a drag (left or right) turns the
-	// view.  Over the console, the mouse is the console's.
+	// view.  Over the console, the mouse is the console's.  (Mouse controls
+	// are explained on the web page around the app.)
 	mouse = rl.GetMousePosition
 	delta = rl.GetMouseDelta
 	overConsole = con.contains(mouse)
@@ -147,8 +154,11 @@ while not rl.WindowShouldClose
 	end if
 
 	rl.BeginDrawing
-	view.draw
-	con.draw 0, rl.GetScreenHeight - consoleHeight, rl.GetScreenWidth, consoleHeight
+	rl.ClearBackground "#000000"
+	cw = consoleWidth
+	sh = rl.GetScreenHeight
+	con.draw 0, 0, cw, sh
+	view.draw cw, 0, rl.GetScreenWidth - cw, sh
 	rl.EndDrawing
 	yield
 end while

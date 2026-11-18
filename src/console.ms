@@ -25,19 +25,21 @@
 // with the ICL for every English sentence.
 
 import "textInput"
+import "uiText"
+import "stringUtil"
 
 rl = raylib
 
 Console = {}
 Console.brain = null      // the Brain that ICL goes to
-Console.fontSize = 20
+Console.fontSize = 16
 Console.lineGap = 4
 Console.padding = 10
 Console.maxEntries = 500
 Console.showIcl = false  // show the ICL for each English sentence?
 Console.log = null       // a SessionLog to write the transcript to, or null
 Console.style = {
-	"panel": "#000000AA", "you": "#9FC9F0", "robot": "#F0F0F0", "note": "#9AA3AD",
+	"panel": "#181B20", "edge": "#2C323A", "you": "#9FC9F0", "robot": "#F0F0F0", "note": "#9AA3AD",
 	"icl": "#8FB89A"}
 
 Console.make = function
@@ -47,7 +49,7 @@ Console.make = function
 	c.queue = []            // lines typed but not yet handled
 	c.pendingReply = null   // a reply waiting for the robot to finish moving
 	c.rect = null           // where the console was last drawn
-	c.input = textInput.TextInput.make("Type here, for example:  Pick up a big red block.   (/help for more)")
+	c.input = textInput.TextInput.make("Type here, for example: Pick up a big red block.  (/help for more)")
 	c.input.newlineReplacement = "; "
 	// Commands: name -> {"run": function(console, argument), "help": text}
 	c.commands = {}
@@ -103,7 +105,7 @@ end function
 // held until the robot finishes moving.
 Console.handle = function(line)
 	self.say self.input.prompt + line, "you"
-	line = strip(line)
+	line = line.trim
 	if line == "" then return
 	if line[0] == "/" then
 		self.runCommand line[1:]
@@ -156,7 +158,7 @@ end function
 Console.runCommand = function(text)
 	words = text.split(" ")
 	name = words[0]
-	argument = strip(words[1:].join(" "))
+	argument = words[1:].join(" ").trim
 	if not self.commands.hasIndex(name) then
 		self.say "There's no command /" + name + ".  Try /help."
 		return
@@ -209,19 +211,6 @@ clearCommand = function(console, argument)
 	console.scroll = 0
 end function
 
-// The string without spaces at either end.
-strip = function(s)
-	i = 0
-	while i < s.len and s[i] == " "
-		i += 1
-	end while
-	j = s.len
-	while j > i and s[j-1] == " "
-		j -= 1
-	end while
-	return s[i:j]
-end function
-
 //----------------------------------------------------------------------
 // Drawing.
 //----------------------------------------------------------------------
@@ -233,7 +222,7 @@ end function
 // How many transcript rows fit in the panel (as last drawn).
 Console.visibleRows = function
 	if self.rect == null then return 1
-	room = self.rect.h - self.input.height - 3 * self.padding
+	room = self.rect.h - self.input.heightFor(self.rect.w - 2 * self.padding) - 3 * self.padding
 	rows = floor(room / self.rowHeight)
 	if rows < 1 then rows = 1
 	return rows
@@ -263,7 +252,7 @@ wrap = function(text, width, fontSize)
 		else
 			candidate = row + " " + word
 		end if
-		if row != "" and rl.MeasureText(candidate, fontSize) > width then
+		if row != "" and uiText.measure(candidate, fontSize) > width then
 			rows.push row
 			row = "    " + word
 		else
@@ -294,7 +283,10 @@ Console.draw = function(x, y, w, h)
 	self.rect = {"x": x, "y": y, "w": w, "h": h}
 	pad = self.padding
 	rl.DrawRectangle x, y, w, h, self.style.panel
-	self.input.draw x + pad, y + h - pad - self.input.height, w - 2 * pad
+	rl.DrawRectangle x + w - 1, y, 1, h, self.style.edge
+	// The input field, at the bottom; it grows upward as the text wraps.
+	inputHeight = self.input.heightFor(w - 2 * pad)
+	self.input.draw x + pad, y + h - pad - inputHeight, w - 2 * pad
 
 	// The transcript, newest at the bottom, scrolled back by self.scroll rows.
 	rows = self.rows(w - 2 * pad)
@@ -305,14 +297,15 @@ Console.draw = function(x, y, w, h)
 	last = rows.len - 1 - self.scroll
 	first = last - visible + 1
 	if first < 0 then first = 0
-	rowY = y + h - 2 * pad - self.input.height - (last - first + 1) * self.rowHeight
+	rowY = y + h - 2 * pad - inputHeight - (last - first + 1) * self.rowHeight
 	for i in range(first, last, 1)
 		row = rows[i]
-		rl.DrawText row[0], x + pad, rowY, self.fontSize, self.style[row[1]]
+		uiText.draw row[0], x + pad, rowY, self.fontSize, self.style[row[1]]
 		rowY += self.rowHeight
 	end for
 	if self.scroll > 0 then
 		note = "(scrolled back; Page Down for more)"
-		rl.DrawText note, x + w - pad - rl.MeasureText(note, 16), y + pad, 16, self.style.note
+		rl.DrawRectangle x, y, w - 1, 13 + 2 * pad, self.style.panel
+		uiText.draw note, x + w - pad - uiText.measure(note, 13), y + pad, 13, self.style.note
 	end if
 end function

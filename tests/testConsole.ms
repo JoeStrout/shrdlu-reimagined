@@ -108,13 +108,38 @@ frame f, "", ["ENTER"]
 frame f, "", ["ENTER"]
 check f.history.len == 3, "an empty line isn't remembered"
 
-// Drawing, including a line much too long for the field.
-f.setText "x" * 200
+// Drawing, including lines too long for the field, which wrap.
+// (In the fake, each character is 8 points wide at size 16, and a 400-point
+// field has room for about 45 characters after the prompt.)
+f.setText ""
+oneRow = f.heightFor(400)
+f.setText "Find a block which is taller than the one you are holding and put it into the box."
 f.draw 0, 0, 400
-check f.scrollX > 0, "a long line scrolls to keep the cursor in view"
+check f.layout.rows.len == 2, "a long line wraps onto two rows: " + f.layout.rows.len
+check f.heightFor(400) > oneRow, "and the field grows taller"
+r = f.layout.rows
+check r[0][0] == 0 and r[0][1] == r[1][0] and r[1][1] == f.text.len, "the rows cover the text: " + r
+check f.text[r[0][1] - 1] == " ", "breaking after a space: " + f.text[:r[0][1]]
+// Up and down move between rows; from the top row, up is the history.
+f.moveTo f.text.len
+frame f, "", ["UP"]
+check f.rowOf(f.cursor) == 0 and f.cursor > 30, "up: the row above, at about the same place: " + f.cursor
+frame f, "", ["DOWN"]
+check f.cursor == f.text.len, "down: back again"
+f.moveTo 3
+frame f, "", ["UP"]
+check f.text == f.history[-1], "up from the top row: the history"
+frame f, "", ["DOWN"]
+// A long word breaks wherever it must; many rows scroll.
+f.setText "x" * 1000
+f.draw 0, 0, 400
+check f.layout.rows.len > f.maxRows, "a very long line has many rows"
+check f.heightFor(400) == f.maxRows * f.rowHeight - f.lineGap + 2 * f.padding, "but the field stops growing"
+check f.scrollRow == f.layout.rows.len - f.maxRows, "and scrolls to show the cursor"
 f.moveTo 0
 f.draw 0, 0, 400
-check f.scrollX == 0, "and scrolls back"
+check f.scrollRow == 0, "and scrolls back"
+f.setText ""
 unfocused = textInput.TextInput.make
 unfocused.focused = false
 check frame(unfocused, "abc", ["ENTER"]) == null and unfocused.text == "", "an unfocused field ignores the keyboard"

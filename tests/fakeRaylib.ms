@@ -121,3 +121,21 @@ module.MeasureText = function(text, size); return floor(text.len * size / 2); en
 module.DrawRectangleLines = function(x, y, w, h, color); count "DrawRectangleLines"; end function
 module.BeginScissorMode = function(x, y, w, h); count "BeginScissorMode"; end function
 module.EndScissorMode = function; count "EndScissorMode"; end function
+
+//----------------------------------------------------------------------
+// Drawing into part of the window (see Display.useViewport).
+//----------------------------------------------------------------------
+
+module.RL_MODELVIEW = 5888
+module.RL_PROJECTION = 5889
+module.GetRenderWidth = function; return 1280; end function
+module.GetRenderHeight = function; return 800; end function
+module.rlDrawRenderBatchActive = function; end function
+module.rlViewport = function(x, y, w, h); count "rlViewport"; end function
+module.rlMatrixMode = function(mode); end function
+module.rlLoadIdentity = function; end function
+module.rlFrustum = function(l, r, b, t, n, f); count "rlFrustum"; end function
+// In this fake, picking within a viewport works just like the whole screen.
+module.GetScreenToWorldRayEx = function(pos, camera, w, h)
+	return module.GetScreenToWorldRay(pos, camera)
+end function

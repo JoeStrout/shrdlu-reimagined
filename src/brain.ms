@@ -37,6 +37,8 @@ import "planner"
 import "meaning"
 import "parser"
 import "lexicon"
+import "listUtil"
+import "stringUtil"
 
 containsRef = @world.containsRef
 
@@ -963,7 +965,7 @@ Brain.answerCount = function(var)
 	if not things then return "None."
 	self.noteFocus var, things
 	if things.len == 1 then return "Just one."
-	return speech.capitalize(speech.numberWord(things.len)) + " of them."
+	return speech.numberWord(things.len).capitalized + " of them."
 end function
 
 // "Which cube is on the table?"  "What does the box contain?"
@@ -981,7 +983,7 @@ Brain.answerWhich = function(var)
 	else
 		names = speech.specificNamesFor(self.world, things, noun)
 	end if
-	return speech.capitalize(names) + "."
+	return names.capitalized + "."
 end function
 
 // "What is it?"  "Which is the tallest block?"  We say what the noun phrase
@@ -993,7 +995,7 @@ Brain.answerIdentify = function(var)
 	if things == null then return null
 	if not things then return "Nothing."
 	self.noteFocus var, things
-	return speech.capitalize(speech.specificNamesFor(self.world, things)) + "."
+	return speech.specificNamesFor(self.world, things).capitalized + "."
 end function
 
 // "Where is the red cube?"  "On the table."  For several things, we say
@@ -1007,7 +1009,7 @@ Brain.answerWhere = function(var)
 	if things == null then return null
 	if not things then return self.fail(self.noneSeen(d))
 	self.noteFocus var, things
-	if things.len == 1 then return speech.capitalize(self.placeOf(things[0])) + "."
+	if things.len == 1 then return self.placeOf(things[0]).capitalized + "."
 	places = []     // in the order we come to them
 	groups = {}     // place -> the things there
 	for t in things
@@ -1023,8 +1025,8 @@ Brain.answerWhere = function(var)
 		if groups[place].len == 1 then verb = " is " else verb = " are "
 		clauses.push speech.namesFor(self.world, groups[place]) + verb + place
 	end for
-	if clauses.len == 1 then return speech.capitalize(clauses[0]) + "."
-	return speech.capitalize(clauses[:-1].join(", ") + ", and " + clauses[-1]) + "."
+	if clauses.len == 1 then return clauses[0].capitalized + "."
+	return (clauses[:-1].join(", ") + ", and " + clauses[-1]).capitalized + "."
 end function
 
 // Where a thing is, as a phrase: "on the table", "in the box", "in my hand".
@@ -1059,7 +1061,7 @@ Brain.answerAttribute = function(var, attr)
 		if v == null then return self.fail("I don't know how to tell its " + attr + ".")
 		if values.indexOf(v) == null then values.push v
 	end for
-	return speech.capitalize(speech.listPhrase(values)) + "."
+	return speech.listPhrase(values).capitalized + "."
 end function
 
 Brain.attributeOf = function(thing, attr)
@@ -1359,8 +1361,7 @@ end function
 
 // The last goal that moved this thing, or null.
 Brain.lastMoveOf = function(thing)
-	for i in range(self.world.goals.len - 1, 0, -1)
-		g = self.world.goals[i]
+	for g in self.world.goals.reversed
 		if g.status == "done" and (g.kind == "putOn" or g.kind == "getRidOf") and refEquals(g.args[0], thing) then return g
 	end for
 	return null
@@ -1407,8 +1408,8 @@ Brain.undo = function
 		moved.push e.thing
 	end for
 	if not moved then return "There's nothing to undo."
-	for i in range(moved.len - 1, 0, -1)
-		if not self.putBack(moved[i], g.start, "undo") then return null
+	for thing in moved.reversed
+		if not self.putBack(thing, g.start, "undo") then return null
 	end for
 	return "OK."
 end function
@@ -1629,8 +1630,7 @@ end function
 
 // The last thing the user asked us to do (that we did).
 Brain.lastAsked = function
-	for i in range(self.world.goals.len - 1, 0, -1)
-		g = self.world.goals[i]
+	for g in self.world.goals.reversed
 		if g.parent == null and g.status == "done" then return g
 	end for
 	return self.fail("I haven't done anything yet.")
@@ -1661,8 +1661,7 @@ Brain.matchingGoals = function(var)
 	end for
 	result = []
 	for kind in eventGoals[e.verb]
-		for i in range(self.world.goals.len - 1, 0, -1)
-			g = self.world.goals[i]
+		for g in self.world.goals.reversed
 			if g.kind != kind or g.status == "failed" then continue
 			if e.verb == "drop" and g.verb != "drop" then continue
 			if not self.goalArgsFit(g, e.verb, refs) then continue
@@ -2044,6 +2043,23 @@ Brain.tryItReadings = function(r, pick)
 	return null
 end function
 
+// "I mean the one on the left" says no more than "the one on the left", in
+// answer to "I don't understand which red block you mean."  So we drop the
+// "I mean" (or "No, I meant", and so on) before reading the noun phrase.
+iMeanOpenings = ["no i mean ", "no i meant ", "i mean ", "i meant ", "i'm talking about ",
+  "i was talking about ", "i am talking about "]
+withoutIMean = function(text)
+	words = []
+	for w in parser.splitWords(text)
+		words.push w[0]
+	end for
+	plain = words.join(" ") + " "
+	for opening in iMeanOpenings
+		if plain.startsWith(opening) then return words[opening.split(" ").len - 1:].join(" ")
+	end for
+	return text
+end function
+
 // After "I don't understand which green cube you mean.", the user may just
 // say which: "The one supporting a pyramid."  "The small one."  "Any one."
 // That's a noun phrase on its own, and it finishes what they asked before:
@@ -2056,6 +2072,7 @@ end function
 // the reply, or null if the text isn't a noun phrase (so it's something
 // new).
 Brain.settle = function(p, text)
+	text = withoutIMean(text)
 	r = parser.parseNounPhrase(text, self.knownNames, self.definitions.indexes)
 	if r.error then return null
 	prog = p.understanding.programs[p.index]
@@ -2491,8 +2508,8 @@ Brain.feels = function(verb, thing, person="i")
 	key = person + " " + verb
 	if not self.attitudes.hasIndex(key) then return false
 	told = self.attitudes[key]
-	for i in range(told.len - 1, 0, -1)
-		if self.entryFits(told[i], thing) then return told[i].holds
+	for entry in told.reversed
+		if self.entryFits(entry, thing) then return entry.holds
 	end for
 	return false
 end function

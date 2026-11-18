@@ -1,0 +1,278 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>SHRDLU Reimagined</title>
+<meta name="description" content="Talk in English to a robot arm in a world of blocks: a hand-written successor to Terry Winograd's SHRDLU, running in your browser.">
+<!--
+  The page around the app.  The engine (raylib-miniscript.js / .wasm) and the
+  program's files (game.data, with its loader game.data.js) are produced by
+  scripts/update-web.sh; this page is written by hand and that script leaves
+  it alone.
+-->
+<style>
+  :root {
+    --bg: #15171a;
+    --panel: #1e2125;
+    --text: #d9dde2;
+    --muted: #9aa3ad;
+    --accent: #e8b04b;
+    --link: #7fb8f0;
+    --border: #33383e;
+    --code-bg: #272b30;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--text);
+    font: 16px/1.55 -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+  }
+  header, main, footer {
+    max-width: 1312px;
+    margin: 0 auto;
+    padding: 0 16px;
+  }
+  header { padding-top: 24px; }
+  h1 {
+    margin: 0;
+    font-size: 30px;
+    font-weight: 600;
+    letter-spacing: 0.01em;
+  }
+  h1 span { color: var(--accent); }
+  .tagline { margin: 4px 0 18px; color: var(--muted); }
+  h2 { font-size: 20px; margin: 32px 0 8px; color: var(--accent); font-weight: 600; }
+  a { color: var(--link); }
+  code, kbd {
+    font-family: ui-monospace, Menlo, Consolas, monospace;
+    font-size: 0.92em;
+    background: var(--code-bg);
+    padding: 1px 5px;
+    border-radius: 4px;
+  }
+
+  /* The app.  The canvas keeps the size the program gives it (1280 x 800);
+     scaling it with CSS would throw off the mouse, so on a narrow screen
+     the frame scrolls instead. */
+  #app-frame {
+    position: relative;
+    width: fit-content;
+    max-width: 100%;
+    overflow-x: auto;
+    margin: 0 auto;
+    background: #000;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+  }
+  #app-frame canvas { display: block; outline: none; }
+  #status {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 12px;
+    color: var(--muted);
+    pointer-events: none;
+  }
+  #status progress { width: 240px; }
+  #status.done { display: none; }
+  #messages { margin: 8px auto 0; max-width: 1282px; color: var(--muted); font-size: 14px; }
+  #messages summary { cursor: pointer; }
+  #messages pre {
+    margin: 6px 0 0;
+    max-height: 240px;
+    overflow: auto;
+    padding: 8px 10px;
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    white-space: pre-wrap;
+    font: 13px/1.4 ui-monospace, Menlo, Consolas, monospace;
+  }
+  .hint { text-align: center; color: var(--muted); font-size: 14px; margin: 8px 0 0; }
+
+  .columns {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+    gap: 0 40px;
+  }
+  ul { padding-left: 20px; margin: 6px 0; }
+  li { margin: 3px 0; }
+  .examples li { font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 14px; }
+  footer {
+    margin-top: 40px;
+    padding-top: 16px;
+    padding-bottom: 32px;
+    border-top: 1px solid var(--border);
+    color: var(--muted);
+    font-size: 14px;
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <h1><span>SHRDLU</span> Reimagined</h1>
+  <p class="tagline">Talk in English to a robot arm in a world of blocks: a hand-written successor to Terry Winograd's SHRDLU (1968–70).</p>
+</header>
+
+<main>
+  <div id="app-frame">
+    <canvas id="canvas" tabindex="-1" oncontextmenu="event.preventDefault()"></canvas>
+    <div id="status">
+      <div id="status-text">Downloading…</div>
+      <progress id="progress" max="100" value="0" hidden></progress>
+    </div>
+  </div>
+  <!-- What the engine prints (script errors among it).  Opens by itself on an error. -->
+  <details id="messages">
+    <summary>Engine messages</summary>
+    <pre id="message-log"></pre>
+  </details>
+  <p class="hint">Click in the window, then type to the robot.  Type <code>/help</code> for examples.</p>
+
+  <div class="columns">
+    <section>
+      <h2>Talking to the robot</h2>
+      <p>Type in the console on the left and press <kbd>Return</kbd>.  Try these in order:</p>
+      <ul class="examples">
+        <li>Pick up a big red block.</li>
+        <li>Find a block which is taller than the one you are holding and put it into the box.</li>
+        <li>What does the box contain?</li>
+        <li>Why did you pick up the blue block?</li>
+        <li>Why?</li>
+        <li>How many blocks are not in the box?</li>
+        <li>Is there a large block behind a pyramid?</li>
+      </ul>
+      <p>You can also teach it new words (“A steeple is a stack which contains two green cubes and a pyramid.”) and ask about what it did and why.</p>
+    </section>
+
+    <section>
+      <h2>Mouse and keys</h2>
+      <ul>
+        <li><b>Click</b> a block or pyramid to select it; then you can call it “this”.</li>
+        <li>While the hand holds something, <b>click</b> to put it down there (<b>Shift-click</b> to drop it even where it won't balance).</li>
+        <li><b>Drag</b> (left or right button) to turn the view; <b>scroll</b> to zoom.</li>
+        <li>Over the console, the wheel scrolls the transcript.  <kbd>↑</kbd>/<kbd>↓</kbd> recall earlier lines; <kbd>Esc</kbd> clears the line.</li>
+      </ul>
+      <h2>Under the hood</h2>
+      <ul>
+        <li><code>/icl</code> shows each sentence's meaning in ICL, the robot's internal language.</li>
+        <li>A line starting with <code>:</code> is typed in ICL directly: <code>: x1 = a pyramid; Ask color x1</code></li>
+        <li><code>/scene playground</code> loads a different world; <code>/scene winograd</code> brings back the original.</li>
+      </ul>
+    </section>
+  </div>
+
+  <h2>What is this?</h2>
+  <p>SHRDLU was Terry Winograd's landmark program at MIT: you typed to it in English, and it moved blocks, answered questions, learned new words, and explained its reasons.  <b>SHRDLU Reimagined</b> is not a port of that program but a clean-sheet successor built on the same ideas.  Everything is hand-written: the parser, the grammar, the reasoning, the planner, and the replies are explicit code you can read.  No machine learning or LLMs are used.  The physics, too, is a few simple, predictable rules, so the robot can reason reliably about its world.</p>
+  <p>It's written in <a href="https://miniscript.org">MiniScript</a> and runs on <a href="https://github.com/JoeStrout/raylib-miniscript">raylib-miniscript</a>, both on the desktop and here in the browser.  The source is meant to be read: see <a href="https://github.com/JoeStrout/shrdlu-reimagined">the repository on GitHub</a>.</p>
+</main>
+
+<footer>
+  SHRDLU Reimagined · <a href="https://github.com/JoeStrout/shrdlu-reimagined">source on GitHub</a> · built with <a href="https://github.com/JoeStrout/raylib-miniscript">raylib-miniscript</a>
+</footer>
+
+<script>
+  // The Emscripten module: where the engine draws, prints, and reports
+  // download progress.  It must exist before game.data.js and the engine load.
+  var statusBox = document.getElementById("status");
+  var statusText = document.getElementById("status-text");
+  var progressBar = document.getElementById("progress");
+  var canvas = document.getElementById("canvas");
+  var messages = document.getElementById("messages");
+  var messageLog = document.getElementById("message-log");
+
+  // Add a line to the "Engine messages" panel (and the browser's console).
+  function logMessage(text, isError) {
+    messageLog.textContent += text + "\n";
+    messageLog.scrollTop = messageLog.scrollHeight;
+    if (isError) { messages.open = true; console.error(text); }
+    else console.log(text);
+  }
+
+  canvas.addEventListener("webglcontextlost", function (e) {
+    alert("WebGL context lost.  Please reload the page.");
+    e.preventDefault();
+  }, false);
+
+  // Clicking anywhere in the app gives it the keyboard.
+  canvas.addEventListener("mousedown", function () { canvas.focus(); });
+
+  var Module = {
+    canvas: canvas,
+    print: function (text) {
+      if (arguments.length > 1) text = Array.prototype.slice.call(arguments).join(" ");
+      // The engine prints script errors to stdout, so watch for them here too.
+      logMessage(text, /error/i.test(text));
+    },
+    printErr: function (text) {
+      if (arguments.length > 1) text = Array.prototype.slice.call(arguments).join(" ");
+      // raylib's routine INFO and WARNING lines come this way; don't pop
+      // the panel open for those.
+      logMessage(text, !/^(INFO|WARNING|DEBUG):/.test(text));
+    },
+    setStatus: function (text) {
+      // Emscripten reports progress as "Downloading data... (123/456)".
+      var m = text.match(/([^(]+)\((\d+(\.\d+)?)\/(\d+)\)/);
+      if (m) {
+        statusText.textContent = m[1].trim();
+        progressBar.value = parseInt(m[2]);
+        progressBar.max = parseInt(m[4]);
+        progressBar.hidden = false;
+      } else {
+        progressBar.hidden = true;
+        if (text) statusText.textContent = text;
+      }
+      if (!text) statusBox.classList.add("done");
+    },
+    totalDependencies: 0,
+    monitorRunDependencies: function (left) {
+      this.totalDependencies = Math.max(this.totalDependencies, left);
+      Module.setStatus(left ? "Preparing… (" + (this.totalDependencies - left) + "/" + this.totalDependencies + ")" : "");
+    },
+    onRuntimeInitialized: function () {
+      statusBox.classList.add("done");
+      canvas.focus();
+    }
+  };
+  Module.setStatus("Downloading…");
+
+  // Typing.  The engine stops the browser from acting on keys (scrolling on
+  // Space or the arrows, and so on) by cancelling every keydown.  But when a
+  // keydown is cancelled, the browser never sends the keypress that follows,
+  // and keypress is where raylib gets typed characters: so nothing could be
+  // typed.  Here we swap in a version that lets keydown through for keys
+  // that type a character, and cancels their keypress instead.
+  function keyDefaults(e) {
+    if (e.key === "F5" || e.key === "F11" || e.key === "F12") return;
+    if (e.ctrlKey || e.metaKey || e.altKey) return;  // browser shortcuts
+    if (e.type === "keydown" && e.key.length === 1) return;  // a keypress follows
+    e.preventDefault();
+  }
+  function fixKeyDefaults() {
+    if (typeof preventGameKeyDefaults === "function") {
+      ["keydown", "keyup", "keypress"].forEach(function (type) {
+        window.removeEventListener(type, preventGameKeyDefaults, true);
+      });
+    }
+    ["keydown", "keyup", "keypress"].forEach(function (type) {
+      window.addEventListener(type, keyDefaults, true);
+    });
+  }
+  window.onerror = function () {
+    statusBox.classList.remove("done");
+    statusText.textContent = "Something went wrong; see the engine messages below.";
+    messages.open = true;
+    Module.setStatus = function (text) { if (text) console.error("[post-exception status] " + text); };
+  };
+</script>
+<!-- Our program and data, as one package (must come after Module, before the engine). -->
+<script src="game.data.js"></script>
+<script async src="raylib-miniscript.js" onload="fixKeyDefaults()"></script>
+</body>
+</html>

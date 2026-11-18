@@ -295,12 +295,17 @@ end function
 volumeOf = function(t); return t.volume; end function
 heightOf = function(t); return t.height; end function
 breadthOf = function(t); return t.breadth; end function
+// Left is smaller x, and front is larger z (toward the viewer).
+xOf = function(t); return t.x; end function
+zOf = function(t); return t.z; end function
 
 superlatives = {
   "biggest": [@volumeOf, 1], "largest": [@volumeOf, 1],
   "smallest": [@volumeOf, -1], "littlest": [@volumeOf, -1],
   "tallest": [@heightOf, 1], "shortest": [@heightOf, -1],
-  "widest": [@breadthOf, 1], "narrowest": [@breadthOf, -1]}
+  "widest": [@breadthOf, 1], "narrowest": [@breadthOf, -1],
+  "leftmost": [@xOf, -1], "rightmost": [@xOf, 1],
+  "frontmost": [@zOf, 1], "backmost": [@zOf, -1]}
 
 // The things in the list that are the most (or least) of something.
 // Ties are all kept.  With a rank, the things in that place: rank 2 of

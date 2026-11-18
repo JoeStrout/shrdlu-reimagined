@@ -605,6 +605,20 @@ say "Make another one.", "I can't build another steeple without taking one apart
 say "A ""tower"" is a block on a block on a block.", "I understand."
 say "How do you build a tower?", "By putting a block on a block, then a block on that."
 
+// From session 10: "X on top of Y is called a Z" could name just X (the
+// pyramid that's on a cube) or the whole arrangement (the stack).  The
+// user meant the stack, but we took it as just the pyramid (DefineLike, as
+// for "call the box a crate"), so "make another one" couldn't build one.
+// Ask instead.  (Answer 1 would be DefineLike, as now.)
+conversation "an arrangement, called"
+say "A pyramid on top of a cube is called a ""steeple"".",
+  "By ""steeple"", do you mean:" + nl + "1 - just the pyramid" + nl + "2 - the whole stack?",
+  gap("naming a thing vs. an arrangement: ask which")
+say "2", "I understand.", gap("naming a thing vs. an arrangement: ask which",
+  "x1 = a pyramid [on x2]; x2 = a cube; Define steeple, x1")
+say "How do you build a steeple?", "By putting a pyramid on a cube."
+say "Make a steeple.", "OK."
+
 // From session 4: names, "also", and a clause about the question word.
 conversation "asking a name"
 say "What is the red cube called?", "It doesn't have a name."
@@ -889,6 +903,43 @@ say "Put the red cube on the blue block.", "I can't.  You told me not to touch t
 conversation "colored"
 say "Which blocks are colored green?", "The large green cube which supports the red pyramid and the large green cube which is on the large red block."
 say "Find all blocks colored red or blue.", "OK."
+
+// "On the left", with no "of": in "the red block on the left" it picks
+// one of the red blocks by contrast (the leftmost); elsewhere it means the
+// left side of the table.  (From a session log, 2026-11-18, where "left"
+// and "right" were unknown words on their own.)
+conversation "on the left", "playground"
+say "Pick up the red block.", "I don't understand which red block you mean."
+say "I mean the one on the left.", "OK."
+say "Is the red block you are holding the leftmost block?", "Yes."
+
+conversation "on the right", "playground"
+say "Grasp the red block.", "I don't understand which red block you mean."
+say "The one on the right.", "OK."
+say "Is the block you are holding to the right of the other red block?", "Yes."
+
+conversation "which one is on the left", "playground"
+say "Which red block is on the right?", "The red one which is to the right of the blue cylinder."
+say "Which red block is the leftmost?", "The red one which is to the left of the blue pyramid."
+say "Pick up the red block on the left.", "OK."
+say "Is it to the left of the other red block?", "Yes."
+say "Which block is furthest to the left?", "The red one which is to the left of the blue pyramid.", gap("""furthest to the left""")
+
+conversation "sides of the table", "playground"
+say "What is on the left?", "Two red blocks, the blue block, the blue cylinder and the blue pyramid."
+say "Is the box on the left?", "No."
+say "Which blocks are on the right?", "The yellow one."
+say "Is there a pyramid in front?", "Yes, the blue one."
+say "What is at the back?", "Two red blocks, the yellow cylinder, the green pyramid, the red pyramid and the box."
+say "What is the frontmost pyramid?", "The blue pyramid."
+say "Pick up the rightmost block.", "OK."
+
+conversation "sides in Winograd's scene"
+say "Which pyramid is on the left?", "The green one."
+say "Is the box at the back?", "Yes."
+say "What is the backmost block?", "The blue block."
+say "Is the blue pyramid on the right side?", "No."
+say "Pick up the pyramid on the right.", "OK."
 
 //======================================================================
 // Out of scope for now

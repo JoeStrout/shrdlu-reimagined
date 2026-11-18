@@ -58,7 +58,15 @@ view = display.Display.make(w)
 b3 = w.thing("b3")
 w.pickUp b3
 w.putAt -3.5, -2
-frames = playOut(view)
+// Before the hand goes down for it, the fingers open wider than the lintel.
+openedFirst = false
+for i in range(1, 400)
+	view.update 1/30
+	if view.handPos[1] < world.World.cruiseHeight - 0.01 then break   // started down
+	if view.gap > b3.width + 0.2 then openedFirst = true
+end for
+check openedFirst, "the fingers open wide enough before reaching down: gap " + view.gap
+frames = playOut(view) + i
 check frames > 30, "the move takes a while to animate (" + frames + " frames)"
 check not view.isBusy, "animation finishes"
 check near3(view.drawnPos(b3), b3.pos), "the lintel is drawn where the world says it is"

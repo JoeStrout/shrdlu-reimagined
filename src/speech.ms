@@ -40,12 +40,6 @@ numberWord = function(n)
 	return str(n)
 end function
 
-// Capitalize the first letter, for the start of a reply.
-capitalize = function(s)
-	if not s then return s
-	return s[0].upper + s[1:]
-end function
-
 // "a", "a and b", "a, b and c"
 listPhrase = function(parts, conjunction="and")
 	if parts.len == 0 then return ""

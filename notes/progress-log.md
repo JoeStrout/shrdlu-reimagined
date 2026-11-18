@@ -593,3 +593,23 @@ Not done: Winograd's fixed "the robot likes everything", and "mine" or "yours" s
 - **Negative questions about owning:** "What don't I own?" and "What objects in the box do I not own?" now parse. "Do" before the subject may carry the "not", or the "not" may follow the subject.
 
 Noticed: a "What about…?" that the robot gets wrong would be hard to spot, since it doesn't say what it took the question to be. If that turns out to happen, it could say the full question back: "Is there anything on the table that you love?  Yes, …".
+
+## 2026-11-18
+
+**New screen layout.** The console now runs down the left third of the window, full height, and the 3D view fills the rest. The mouse instructions are gone from the screen; they'll go on the surrounding web page.
+- The view draws into its rectangle by setting raylib's viewport and redoing the perspective for the rectangle's shape (`Display.useViewport`), rather than rendering to a texture, so it keeps the window's full Retina resolution and multisampling. Picking uses `GetScreenToWorldRayEx` relative to the rectangle.
+- All UI text uses DejaVu Sans, through a new little module `uiText.ms` (font loading, measuring, drawing, wrapping). The font is loaded at 48 px and drawn smaller, so it's sharp on Retina screens. Without a window (the tests), it falls back to raylib's default font.
+- The input field wraps a long line onto more rows and grows upward, up to 6 rows, then scrolls. Up/Down move between its rows, and from the top or bottom row step through the history as before.
+
+**Utility libraries.** Vendored `listUtil`, `stringUtil` and `mathUtil` from Mini Micro's `/sys/lib` into `src/` (unchanged; their own unit tests pass under the MiniScript 2 command line), and used them in place of hand-rolled helpers: `clamp`, `strip`, `capitalize` (both copies), `hasEntry`, and the backward index loops over goals and history (now `for g in goals.reversed`). All tests still pass.
+
+**Gripper opens before reaching down.** When picking something up, the hand now spreads its fingers a little wider than the thing (`reachClearance`) while still at the top, then descends and closes to fit. After letting go, the fingers stay at that width on the way up instead of snapping back to the resting gap (which used to poke into wide blocks).
+
+**"On the left" without "of".** From a session log: "Pick up the one on the right" and "I mean the one on the left" failed, since "left" and "right" were known only in "to the left of" and the like. Now "on the left", "at the back", "in front", "on the far right" and so on are a word class of their own (`side`), and mean one of two things:
+- In a definite singular noun phrase ("the red block on the left", "the one at the back"), or after "which" with a noun ("which red block is on the right?"), they pick by contrast: the new superlatives [leftmost], [rightmost], [frontmost], [backmost]. Two red blocks both at the right end of the table still have a left one.
+- Otherwise ("a block on the left", "what is at the back?", "is the box on the left?") they mean that third of the table, like "on the left side of the table".
+"Leftmost", "rightmost", "frontmost", "backmost" and "rearmost" are words too. An answer to "which red block do you mean?" may now start with "I mean", "No, I meant", or "I'm talking about". Still a gap: "furthest to the left".
+
+**Web page.** `docs/` is now a GitHub Pages site: a hand-written `index.html` with the app embedded (fixed 1280×800 canvas, since scaling it with CSS would throw off the mouse), plus instructions for talking to the robot and for the mouse, which used to be on screen. `scripts/update-web.sh` copies the engine (`raylib-miniscript.js` / `.wasm`) from `../raylib-miniscript/build-web` and bundles our files into `game.data`. The engine on the web always runs `assets/main.ms` and imports from that script's folder, so the package puts `src/*.ms` into `/assets/` beside the contents of `assets/`; the program's `"assets/..."` paths work unchanged since the working directory is `/`. Test with `cd docs && python3 -m http.server 8000`.
+
+**Gap noted: naming a thing vs. an arrangement.** From session 10: "A pyramid on top of a cube is called a "steeple"" was taken as a word for that kind of pyramid (`DefineLike`, as with "call the box a crate"), but the user meant the whole stack (`Define steeple, x1`, as "A steeple is a pyramid on top of a cube" already gives). Both readings are plausible, so the robot should ask: "By "steeple", do you mean: 1 - just the pyramid  2 - the whole stack?" Added as a gap in `tests/testCoverage.ms` ("an arrangement, called"); not tackled yet.
