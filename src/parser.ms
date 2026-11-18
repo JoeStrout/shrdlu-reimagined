@@ -49,41 +49,41 @@ isLetter = function(c)
 	return (c >= "a" and c <= "z") or (c >= "0" and c <= "9") or c == "-"
 end function
 
-// Split text into words: [text, quoted, afterComma] triples.  Lowercases
-// everything, drops punctuation except "?", and notes which words were in
-// quotes.  A comma isn't kept as a word, but the word after it remembers
-// that it came after one; only lists ("the blue block, the red cube and
-// the box") need to know.
+// Split text into words: [text, quoted, afterComma, original] lists.
+// Lowercases everything, drops punctuation except "?", and notes which
+// words were in quotes.  A comma isn't kept as a word, but the word after
+// it remembers that it came after one; only lists ("the blue block, the
+// red cube and the box") need to know.  Each word also keeps how it was
+// typed, for names: "Call it Bob" names it Bob, not bob.
 splitWords = function(text)
-	s = text.lower
-	s = s.replace("“", """").replace("”", """").replace("‘", "'").replace("’", "'")
+	typed = text.replace("“", """").replace("”", """").replace("‘", "'").replace("’", "'")
+	s = typed.lower
 	result = []
 	word = ""
+	original = ""
 	quoting = false
 	comma = false
 	for i in s.indexes
 		c = s[i]
 		if i + 1 < s.len then nextChar = s[i+1] else nextChar = ""
-		if isLetter(c) then
-			word += c
-			continue
-		end if
 		// An apostrophe inside a word ("don't") is part of it; otherwise
 		// it's a quotation mark.
-		if c == "'" and word != "" and isLetter(nextChar) then
+		if isLetter(c) or (c == "'" and word != "" and isLetter(nextChar)) then
 			word += c
+			original += typed[i]
 			continue
 		end if
 		if word != "" then
-			result.push [word, quoting, comma]
+			result.push [word, quoting, comma, original]
 			comma = false
 		end if
 		word = ""
+		original = ""
 		if c == """" or c == "'" then quoting = not quoting
 		if c == "," then comma = true
-		if c == "?" then result.push ["?", false, false]
+		if c == "?" then result.push ["?", false, false, "?"]
 	end for
-	if word != "" then result.push [word, quoting, comma]
+	if word != "" then result.push [word, quoting, comma, original]
 	return result
 end function
 
@@ -95,12 +95,12 @@ expandContractions = function(words)
 		if not w[1] and lexicon.contractions.hasIndex(w[0]) then
 			comma = w[2]
 			for part in lexicon.contractions[w[0]].split(" ")
-				result.push [part, false, comma]
+				result.push [part, false, comma, part]
 				comma = false
 			end for
 		else if not w[1] and w[0].len > 2 and w[0][-2:] == "'s" then
-			result.push [w[0][:-2], false, w[2]]
-			result.push ["'s", false, false]
+			result.push [w[0][:-2], false, w[2], w[3][:-2]]
+			result.push ["'s", false, false, "'s"]
 		else
 			result.push w
 		end if
@@ -125,7 +125,7 @@ joinPhrases = function(words)
 		joined = false
 		for phrase in lexicon.phrases
 			if phraseAt(words, i, phrase) then
-				result.push [phrase.join(" "), false, words[i][2]]
+				result.push [phrase.join(" "), false, words[i][2], phrase.join(" ")]
 				i += phrase.len
 				joined = true
 				break
@@ -145,9 +145,16 @@ end function
 // appear in the singular or the plural.
 tokenize = function(text, names=null, nouns=null)
 	tokens = []
+	// (Names are kept as they were typed, but match in any case.)
+	lowerNames = []
+	if names then
+		for n in names
+			lowerNames.push n.lower
+		end for
+	end if
 	for w in joinPhrases(expandContractions(splitWords(text)))
-		t = {"text": w[0], "quoted": w[1], "afterComma": w[2], "entries": []}
-		if t.quoted or (names and names.indexOf(t.text) != null) then
+		t = {"text": w[0], "quoted": w[1], "afterComma": w[2], "original": w[3], "entries": []}
+		if t.quoted or (lowerNames and lowerNames.indexOf(t.text) != null) then
 			t.entries.push {"cat": "name", "form": "base", "stem": t.text}
 		end if
 		if not t.quoted then
@@ -192,7 +199,15 @@ end function
 //----------------------------------------------------------------------
 
 leaf = function(token, entry)
-	return {"cat": entry.cat, "word": token.text, "entry": entry}
+	result = {"cat": entry.cat, "word": token.text, "entry": entry}
+	if token.hasIndex("original") then result.original = token.original
+	return result
+end function
+
+// A name as the user typed it: "Bob".
+typedWord = function(tree)
+	if tree.hasIndex("original") then return tree.original
+	return tree.word
 end function
 
 node = function(cat, parts)
@@ -468,13 +483,23 @@ Parser.nounCore = function(pos)
 	return results
 end function
 
-// "at least one of" + "them".
+// "at least one of" + "them", or "one of" + "the green cubes": some of a
+// group we already know about.
 Parser.partitive = function(d)
 	results = []
 	for p in self.word(d.next, "pronoun")
 		if icl.pronouns.hasIndex(p.tree.word) and icl.pronouns[p.tree.word] then
 			results.push result(node("NP", [d.tree, p.tree]), p.next)
 		end if
+	end for
+	// ("Both of the red blocks" is just "both red blocks": see Parser.both.)
+	if determinerInfo(d.tree).det == "both" then return results
+	for np in self.nounPhrase(d.next)
+		first = np.tree.parts[0]
+		if first.cat != "det" or first.entry.det != "the" then continue
+		nouns = partsOfCat(np.tree, "noun")
+		if not nouns or nouns[0].entry.form != "plural" then continue
+		results.push result(node("NP", [d.tree, np.tree]), np.next)
 	end for
 	return results
 end function
@@ -485,6 +510,25 @@ Parser.determinerPhrase = function(pos)
 	results += self.word(pos, "det")
 	results += self.both(pos)
 	results += self.allThe(pos)
+	// "any of", "one of", "which of", "none of"... (+ "them" or "the cubes")
+	for d in self.word(pos, "det")
+		if ["the", "a", "both"].indexOf(d.tree.entry.det) != null and d.tree.word != "one" then continue
+		for o in self.word(d.next, "of")
+			tree = node("DET", [d.tree, o.tree])
+			tree.info = d.tree.entry + {"partitive": true, "number": null}
+			results.push result(tree, o.next)
+		end for
+	end for
+	// "the three red objects": the, with a count
+	for t in self.word(pos, "det")
+		if t.tree.word != "the" then continue
+		for n in self.word(t.next, "det")
+			if n.tree.entry.det != "number" or n.tree.entry.n < 2 then continue
+			tree = node("DET", [t.tree, n.tree])
+			tree.info = {"det": "the", "n": n.tree.entry.n, "number": "pl", "partitive": false}
+			results.push result(tree, n.next)
+		end for
+	end for
 	// "at least two", "at least one of"
 	for a in self.word(pos, "atLeast")
 		for n in self.word(a.next, "det")
@@ -783,10 +827,14 @@ Parser.predicate = function(pos)
 			results.push result(node("ADJP", [t.tree, a.tree]), a.next)
 		end for
 	end for
-	// "(is) the tallest block", "(is) a cube": what it is.
+	// "(is) the tallest block", "(is) a cube", "(are) crates": what it is.
 	for np in self.nounPhrase(pos)
 		first = np.tree.parts[0]
-		if first.cat == "det" and (first.entry.det == "the" or first.entry.det == "a") then results.push np
+		if first.cat == "det" and (first.entry.det == "the" or first.entry.det == "a") then
+			results.push np
+		else if first.cat == "noun" and first.entry.form == "plural" then
+			results.push np
+		end if
 	end for
 	results += self.word(pos, "mine")
 	results += self.prepPhrase(pos)
@@ -795,6 +843,13 @@ Parser.predicate = function(pos)
 		if v.tree.entry.form != "ing" then continue
 		for p in self.prepPhrase(v.next)
 			results.push result(node("VP", [v.tree, p.tree]), p.next)
+		end for
+	end for
+	// "(is) supporting a pyramid", "(is) touching the box"
+	for v in self.wordWith(pos, "verb", "rel")
+		if v.tree.entry.form != "ing" then continue
+		for np in self.nounPhrases(v.next)
+			results.push result(node("VP", [v.tree, np.tree]), np.next)
 		end for
 	end for
 	return results
@@ -934,6 +989,15 @@ end function
 Parser.shape = function(pos, shape, i=0)
 	if i >= shape.len then return [result([], pos)]
 	results = []
+	// "on top" means "on top of it": "put the blue block on top".
+	if shape[i] == "on" and i + 1 < shape.len and shape[i+1] == "thing" then
+		for t in self.word(pos, "onTop")
+			it = node("NP", [leaf({"text": "it"}, {"cat": "pronoun", "head": "it", "det": null})])
+			for rest in self.shape(t.next, shape, i + 2)
+				results.push result([t.tree, it] + rest.tree, rest.next)
+			end for
+		end for
+	end if
 	for first in self.element(pos, shape[i])
 		for rest in self.shape(first.next, shape, i + 1)
 			results.push result([first.tree] + rest.tree, rest.next)
@@ -1031,7 +1095,7 @@ Parser.sentence = function(pos)
 	  self.whQuestion(pos) + self.identifyQuestion(pos) + self.choiceQuestion(pos) + self.whereQuestion(pos) +
 	  self.attributeQuestion(pos) + self.yesNoQuestion(pos) + self.canQuestion(pos) +
 	  self.didQuestion(pos) + self.eventQuestion(pos) + self.whatDoneQuestion(pos) + self.chat(pos) + self.tellMe(pos) +
-	  self.showMe(pos) + self.methodQuestion(pos)
+	  self.showMe(pos) + self.methodQuestion(pos) + self.nameStatement(pos) + self.exampleStatement(pos)
 end function
 
 // "Tell me what you are holding."  "Can you tell me where the red cube is?"
@@ -1121,6 +1185,54 @@ Parser.ownStatement = function(pos)
 			for n in self.optionalNot(b.next)
 				for m in self.word(n.next, "mine")
 					results.push result(node("OWN", [np.tree, b.tree] + n.tree + [m.tree]), m.next)
+				end for
+			end for
+		end for
+	end for
+	return results
+end function
+
+// "That cube's name is Bob."  "Its name is Bob."  "The blue block is called
+// Bob."  Giving something a name, as "Call it Bob" does.  (The name may be a
+// word nobody knows: see tokenize.)
+Parser.nameStatement = function(pos)
+	results = []
+	for np in self.nounPhrase(pos)
+		for s in self.word(np.next, "poss")
+			for n in self.word(s.next, "nameNoun")
+				for b in self.word(n.next, "be")
+					for name in self.word(b.next, "name")
+						results.push result(sentenceNode("nameIt", [np.tree, s.tree, n.tree, b.tree, name.tree]), name.next)
+					end for
+				end for
+			end for
+		end for
+		for b in self.word(np.next, "be")
+			for v in self.word(b.next, "verb")
+				if v.tree.entry.form != "ed" or ["call", "name"].indexOf(v.tree.entry.stem) == null then continue
+				for name in self.word(v.next, "name")
+					results.push result(sentenceNode("nameIt", [np.tree, b.tree, v.tree, name.tree]), name.next)
+				end for
+			end for
+		end for
+	end for
+	return results
+end function
+
+// "That is a steeple."  "This is called a steeple."  Teaching a word from
+// an example, as "Call that a steeple" does.  The word is a name (in
+// quotes, or a word nobody knows yet).
+Parser.exampleStatement = function(pos)
+	results = []
+	for np in self.nounPhrase(pos)
+		for b in self.word(np.next, "be")
+			for v in self.optionalWord(b.next, "verb")
+				if v.tree and (v.tree[0].entry.form != "ed" or ["call", "name"].indexOf(v.tree[0].entry.stem) == null) then continue
+				for d in self.word(v.next, "det")
+					if d.tree.entry.det != "a" then continue
+					for name in self.word(d.next, "name")
+						results.push result(sentenceNode("defineLike", [np.tree, b.tree] + v.tree + [d.tree, name.tree]), name.next)
+					end for
 				end for
 			end for
 		end for
@@ -1289,6 +1401,12 @@ end function
 // blocks", or "what"?  Returns the kind of question it asks, or null.
 whKind = function(np)
 	first = np.parts[0]
+	// "which of the pyramids", "how many of them"
+	if first.cat == "DET" and first.hasIndex("info") then
+		if first.info.det == "which" then return "which"
+		if first.info.det == "how-many" then return "count"
+		return null
+	end if
 	if first.cat != "det" and first.cat != "pronoun" then return null
 	if first.entry.det == "which" then return "which"
 	if first.entry.det == "how-many" then return "count"
@@ -1302,8 +1420,10 @@ Parser.whQuestion = function(pos)
 	for np in self.nounPhrase(pos)
 		if whKind(np.tree) == null then continue
 		for rest in self.whRest(np.next)
-			// ("What is the tallest thing?" is identifyQuestion's.)
-			if rest.tree.parts.len == 2 and rest.tree.parts[0].cat == "be" and rest.tree.parts[1].cat == "NP" then continue
+			// ("What is the tallest thing?" is identifyQuestion's.  But "Which
+			// pyramids are bricks?" is ours.)
+			if rest.tree.parts.len == 2 and rest.tree.parts[0].cat == "be" and rest.tree.parts[1].cat == "NP" and
+			  rest.tree.parts[1].parts[0].cat == "det" then continue
 			for t in self.optionalTime(rest.next)
 				results.push result(sentenceNode("wh", [np.tree, rest.tree] + t.tree), t.next)
 			end for
@@ -1416,10 +1536,11 @@ Parser.whRest = function(pos)
 			results.push result(node("WH", [d.tree] + o.tree), o.next)
 		end for
 	end for
-	// "... does the box contain"
-	for d in self.word(pos, "do")
+	// "... does the box contain", "... is the large red block supporting"
+	for d in self.word(pos, "do") + self.word(pos, "be")
 		for np in self.nounPhrase(d.next)
 			for v in self.wordWith(np.next, "verb", "rel")
+				if d.tree.cat == "be" and v.tree.entry.form != "ing" then continue
 				results.push result(node("WH", [d.tree, np.tree, v.tree]), v.next)
 			end for
 		end for

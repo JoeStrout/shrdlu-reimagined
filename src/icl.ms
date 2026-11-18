@@ -63,7 +63,7 @@ pronouns = {"it": false, "that": false, "this": false, "them": true, "they": tru
 questionKinds = ["exists", "count", "which", "identify", "where", "yes-no", "why", "how", "when", "can", "what", "method"]
 
 // Statements that teach the robot something, rather than asking it to act.
-declareVerbs = ["define", "name", "own", "dontOwn"]
+declareVerbs = ["define", "defineLike", "name", "own", "dontOwn"]
 
 //----------------------------------------------------------------------
 // Small helpers
@@ -102,10 +102,40 @@ uncapitalize = function(word)
 	return word[0].lower + word[1:]
 end function
 
+// Irregular plurals, from assets/irregularPlurals.txt: plural -> singular,
+// and singular -> plural.  (If the file can't be read, there are none, and
+// only the usual rules apply.)
+irregularSingular = {}
+irregularPlural = {}
+loadIrregularPlurals = function(path="assets/irregularPlurals.txt")
+	lines = file.readLines(path)
+	if not (lines isa list) then return
+	for line in lines
+		words = line.split(" ")
+		if not line or line[0] == "#" or words.len != 2 then continue
+		singular = words[0]
+		plural = words[1]
+		if not irregularSingular.hasIndex(plural) then irregularSingular[plural] = singular
+		// (The first plural listed is the one we use.)
+		if not irregularPlural.hasIndex(singular) then irregularPlural[singular] = plural
+	end for
+end function
+loadIrregularPlurals
+
+isVowel = function(c)
+	return "aeiou".indexOf(c) != null
+end function
+
 // Split a noun into its singular form and whether it was plural:
-// "blocks" -> ["block", true], "boxes" -> ["box", true], "box" -> ["box", false].
+// "blocks" -> ["block", true], "boxes" -> ["box", true], "box" -> ["box", false],
+// "dice" -> ["die", true], "bodies" -> ["body", true].  A noun that's the
+// same in both ("sheep") counts as plural, which lets it be read either way.
 singularize = function(word)
 	if pronouns.hasIndex(word) then return [word, pronouns[word]]
+	if irregularSingular.hasIndex(word) then return [irregularSingular[word], true]
+	if irregularPlural.hasIndex(word) then return [word, false]     // "bus", "die"
+	// "bodies" -> "body"  (but "pies" and the like are in the file)
+	if word.len > 4 and word[-3:] == "ies" and not isVowel(word[-4]) then return [word[:-3] + "y", true]
 	if word.len > 3 and word[-2:] == "es" then
 		stem = word[:-2]
 		if stem[-1] == "x" or stem[-1] == "s" or stem[-2:] == "ch" or stem[-2:] == "sh" then
@@ -116,8 +146,11 @@ singularize = function(word)
 	return [word, false]
 end function
 
-// The reverse: "block" -> "blocks", "box" -> "boxes".
+// The reverse: "block" -> "blocks", "box" -> "boxes", "die" -> "dice",
+// "body" -> "bodies".
 pluralize = function(word)
+	if irregularPlural.hasIndex(word) then return irregularPlural[word]
+	if word.len > 1 and word[-1] == "y" and not isVowel(word[-2]) then return word[:-1] + "ies"
 	if word[-1] == "x" or word[-1] == "s" or word[-2:] == "ch" or word[-2:] == "sh" then
 		return word + "es"
 	end if

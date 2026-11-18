@@ -225,9 +225,18 @@ end function
 // Look up a Thing by its id (or one of the names the user gave it).
 World.thing = function(idOrName)
 	for t in self.things
-		if t.id == idOrName or t.names.indexOf(idOrName) != null then return t
+		if t.id == idOrName or hasName(t, idOrName) then return t
 	end for
 	return null
+end function
+
+// Does the thing have this name?  (In any case: "Bob" and "bob" are one
+// name.)
+hasName = function(thing, name)
+	for n in thing.names
+		if n.lower == name.lower then return true
+	end for
+	return false
 end function
 
 // The things that can be moved around (everything but the table and box).

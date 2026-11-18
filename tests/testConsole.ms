@@ -14,6 +14,7 @@ import "scenes"
 import "brain"
 import "textInput"
 import "console"
+import "sessionLog"
 
 failures = 0
 checks = 0
@@ -214,6 +215,30 @@ c.scrollBy 1000
 c.draw 0, 500, 640, 300
 check c.scroll > 0 and c.scroll < 70, "scrolling back is limited to what's there: " + c.scroll
 check c.contains({"x": 10, "y": 600}) and not c.contains({"x": 10, "y": 100}), "contains"
+
+//----------------------------------------------------------------------
+// The session log (written to a folder in TMPDIR, so the repo stays clean)
+//----------------------------------------------------------------------
+
+folder = file.child(env.TMPDIR, "shrdluTestLogs")
+w = world.World.make
+w.load scenes.byName.winograd
+c = console.Console.make
+c.brain = brain.Brain.make(w)
+c.log = sessionLog.SessionLog.make(folder)
+check c.log != null, "a log, off the web"
+frame c, "Pick up the green pyramid.", ["ENTER"]
+c.update
+frame c, "Grasp the frobnitz.", ["ENTER"]
+c.update
+saved = file.readLines(c.log.path)
+check saved.indexOf("you:    > Pick up the green pyramid.") != null, "what you said is logged"
+check saved.indexOf("icl:        PickUp x1") != null, "with its ICL, though the console isn't showing it"
+check saved.indexOf("robot:  OK.") != null, "and the reply"
+check saved.indexOf("icl:        (no parse: Sorry, I don't know the word ""frobnitz"".)") != null, "a sentence that didn't parse says so"
+check c.entries[-1].text == "Sorry, I don't know the word ""frobnitz"".", "the console doesn't show the ICL lines"
+file.delete c.log.path
+file.delete folder
 
 print checks + " checks, " + failures + " failures."
 exit (failures > 0)

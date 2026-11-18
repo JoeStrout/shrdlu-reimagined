@@ -35,6 +35,8 @@ Meaning.describe = function(np)
 	if np.hasIndex("join") then return self.describeGroup(np)
 	bound = self.boundPronoun(np)
 	if bound then return bound
+	// "one of the green cubes" -> x1 = 1 cube [oneOf x2]; x2 = the cubes [color green]
+	if np.parts.len >= 2 and np.parts[0].cat == "DET" and np.parts[1].cat == "NP" then return self.describeSome(np)
 	if isIt(np) then
 		if self.itTarget != null then
 			// This reading takes "it" to be an earlier noun phrase.
@@ -49,6 +51,28 @@ Meaning.describe = function(np)
 	self.phrases.push {"words": parser.wordsOf(np), "var": var}
 	self.describing.push var
 	for part in np.parts
+		c = self.constraintFor(part)
+		if c then d.props.push c
+	end for
+	self.describing.pop
+	return var
+end function
+
+// Some of a group: "one of the green cubes", "any of the blocks on the
+// table".  The group is a description of its own, and this one is the
+// same kind of thing, one of those.
+Meaning.describeSome = function(np)
+	info = parser.determinerInfo(np.parts[0])
+	group = np.parts[1]
+	head = parser.partsOfCat(group, "noun")[0].entry.head
+	d = icl.description(info.det, head, info.n != 1)
+	d.n = info.n
+	var = self.prog.add(d)
+	self.phrases.push {"words": parser.wordsOf(np), "var": var}
+	self.describing.push var
+	d.props.push icl.constraint("oneOf", [self.describe(group)])
+	// Anything after the group says more about these ones.
+	for part in np.parts[2:]
 		c = self.constraintFor(part)
 		if c then d.props.push c
 	end for
@@ -380,6 +404,14 @@ Meaning.sentence = function(s)
 		for part in parser.partsOfCat(s, "OWN")
 			self.prog.add self.ownership(part)
 		end for
+	else if s.kind == "defineLike" then
+		// "That is a steeple." -> DefineLike x1, steeple
+		name = parser.partsOfCat(s, "name")[0].word
+		self.prog.add icl.command("defineLike", [self.describe(s.parts[0]), name])
+	else if s.kind == "nameIt" then
+		// "That cube's name is Bob." -> Name x1, Bob
+		name = parser.typedWord(parser.partsOfCat(s, "name")[0])
+		self.prog.add icl.command("name", [self.describe(s.parts[0]), name])
 	else if s.kind == "chat" then
 		// "Thank you." -> Chat thanks
 		self.prog.add icl.command("chat", [s.parts[0].entry.reply])
@@ -398,7 +430,32 @@ end function
 // each noun phrase.  ("Count the blocks" is really a question.)
 Meaning.command = function(cmd)
 	if cmd.frame.icl == "count" then return icl.ask("count", self.arguments(cmd)[0])
+	if cmd.frame.icl == "name" or cmd.frame.icl == "defineLike" then return self.naming(cmd)
 	return icl.command(cmd.frame.icl, self.arguments(cmd))
+end function
+
+// "Call ... ...": what it means depends on the determiners.
+//   "Call the biggest block superblock"  names one thing:   Name x1, superblock
+//   "Call the box a crate"               a word for it:     DefineLike x1, crate
+//   "Call that a steeple"                (that, a stack:    DefineLike x1, steeple,
+//                                          which the brain learns by example)
+//   "Call a box a crate", "Call all boxes crates"
+//                                        a kind of thing:   Define crate, x1
+// That is, the first noun phrase says whether it's one particular thing,
+// or any thing like that; and "a" before the word says it's a noun, not
+// a name.
+Meaning.naming = function(cmd)
+	args = self.arguments(cmd)
+	d = self.prog.lookup(args[0])
+	particular = d.kind == "description" and (d.det == null or d.det == "the" or d.det == "both")
+	if not particular then
+		// (The word may be plural, as in "call all boxes crates".)
+		return icl.command("define", [icl.singularize(args[1].lower)[0], args[0]])
+	end if
+	// ("Call it the superblock" isn't teaching a word, so only "a" will do.)
+	dets = parser.partsOfCat(cmd, "det")
+	if dets and dets[0].entry.det == "a" then return icl.command("defineLike", [args[0], args[1].lower])
+	return icl.command("name", args)
 end function
 
 // A command's arguments: a variable for each noun phrase, and a name as
@@ -414,7 +471,7 @@ Meaning.arguments = function(cmd)
 	args = []
 	for part in cmd.parts
 		if part.cat == "NP" then args.push self.describe(part)
-		if part.cat == "name" then args.push part.word
+		if part.cat == "name" then args.push parser.typedWord(part)
 	end for
 	// "Put the red cube next to the blue block" -> PutAt x1, nextTo, x2
 	if cmd.frame.hasIndex("relation") and args.len == 2 then args = [args[0], cmd.frame.relation, args[1]]

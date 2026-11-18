@@ -111,6 +111,8 @@ determiner "every", "every", "sg"
 determiner "each", "every", "sg"
 determiner "all", "every", "pl"
 determiner "no", "no"
+determiner "none", "no"     // "none of them"
+determiner "another", "a", "sg"     // "Build another one."
 // "That cube" and "this cube" are "the cube", which prefers the one just
 // mentioned or clicked on (see Brain.inFocus).
 determiner "that", "the", "sg"
@@ -324,7 +326,9 @@ command "make", [frame("thing", "build"), frame("me thing", "build")]
 // "Bring me a cube": the robot can't reach you, but it can pick one up.
 command "bring", [frame("me thing", "pickUp"), frame("thing", "pickUp")]
 command "fetch", [frame("me thing", "pickUp"), frame("thing", "pickUp")]
-command "call", [frame("thing name", "name")]
+// "Call it superblock" names one thing; "call that a steeple" teaches a
+// word from an example (see Brain.defineLike).
+command "call", [frame("thing name", "name"), frame("thing det name", "defineLike")]
 // "Count the blocks" is a question: how many are there?
 command "count", [frame("thing", "count")]
 // "Undo that": put back whatever we moved for the last thing we were asked.
@@ -333,7 +337,7 @@ command "undo", [frame("thing", "undo"), frame("", "undo")]
 simple "show", "show"
 // "Touch" is only for questions so far: "Had you touched any pyramid...?"
 command "touch", [frame("thing", "touch")]
-command "name", [frame("thing name", "name")]
+command "name", [frame("thing name", "name"), frame("thing det name", "defineLike")]
 
 for w in ["up", "down", "off", "out", "back"]
 	simple w, "particle"
@@ -364,6 +368,11 @@ simple "there", "there"
 simple "now", "now"
 // "Do you see a red pyramid?" asks whether there is one.
 verb "see", {"see": true}
+// "On top", with no "of": on top of whatever we were just talking about
+// ("Put it on the table, and put the blue block on top").
+simple "on top", "onTop"
+// "That cube's name is Bob."
+simple "name", "nameNoun"
 // "Blocks colored red or blue"
 for w in ["colored", "coloured"]
 	simple w, "colored"
@@ -470,7 +479,7 @@ contractions = {
   "isn't": "is not", "aren't": "are not", "wasn't": "was not",
   "i'm": "i am", "you're": "you are", "it's": "it is",
   "what's": "what is", "there's": "there is", "that's": "that is",
-  "where's": "where is", "i'd": "i would", "haven't": "have not",
+  "where's": "where is", "i'd": "i would", "its": "it 's", "haven't": "have not",
   "hasn't": "has not", "hadn't": "had not", "you've": "you have"}
 
 // Irregular verb forms: form -> [stem, form].

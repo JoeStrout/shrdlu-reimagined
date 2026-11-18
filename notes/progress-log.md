@@ -414,3 +414,72 @@ Noticed:
 - Putting something in the box takes about 0.4 s; that was already so. Placing three things "at the front of the table" takes 1.3 s. Both come from `Planner.findSpace` trying every grid spot. Worth speeding up before the web build.
 - A noun phrase on its own, with no question to answer ("The one you are holding."), gets "That seems to stop in the middle."; a better reply would say what's missing.
 - "Undo that" makes one root goal per thing put back. So "What did you do last?" after an undo describes just the last of those steps.
+
+### 2026-11-18: session logs
+
+On the desktop, the app now writes each session to `logs/session-NNN.txt` (numbered, since the desktop build can't format dates; the date is the first line inside), which git ignores. There's no log on the web.
+- **What's in it.** Each line is labelled `you:`, `robot:`, `note:` or `icl:`. The ICL for every English sentence is logged even when `/icl` is off, and a sentence that didn't parse gets `(no parse: ...)`.
+- **What it's for.** After a round of testing by hand, Claude can read the log and turn the failures into lines in `tests/testCoverage.ms`.
+- **How.** The log is `src/sessionLog.ms`, fed from `Console.say`. Writing to a file only saves it when the file is closed, so the whole file is rewritten after each line; that way it's complete even if the app is stopped suddenly.
+- **Fixed along the way.** `Brain.lastUnderstanding` is now set on every path, including "2" after an "on top of" question and a noun phrase that settles "which one?". Before, `/icl` could show the previous sentence's ICL.
+
+### 2026-11-18: the first session log
+
+The first session, played by hand, is in `logs/session-001.txt`. Its sentences are now the "session 1" conversation in the coverage test, with variations. Fixed:
+- **Partitives:** "Are any of them…", "Pick up one of the green cubes", "Which of the pyramids…", "two of the blocks on the table".
+  - With "them", the old way still works.
+  - With a definite plural, it's `x1 = 1 cube [oneOf x2]`, with `x2 = the cubes [color green]` (`Meaning.describeSome`).
+  - "Both of the X" keeps its own simpler meaning.
+- **"On top" with no "of"** is "on top of it": "Place it on the table, and put the blue block on top."
+- **"One" borrows adjectives too, when it has none of its own** (`Brain.borrowedAdjectives`). The user caught this: after "How many red objects are there?", "Is there one on top of a green block?" listed the blue block too, because "one" borrowed only "object". Now "one" is a red object there. "A small one" still borrows only the noun, as in Winograd's turn 20, since it says its own size. The focus remembers the adjectives along with the noun.
+- **"The three red objects"** checks the count: "I see one red cube, not two."
+- **Naming by statement:** "That cube's name is Bob.", "Its name is Bob." ("its" is "it 's"), "The red cube is named Rex.", "…is called…".
+- **The progressive:** "What is supporting Bob?", "Is the red cube supporting the green pyramid?", "What is the large red block supporting?"
+- **Session logs** are now numbered (`session-001.txt`…), since the desktop build can't format dates. The date the file was made is noted inside.
+
+Still a gap: "Call that a steeple", teaching a word by example. The question is how much of the example to keep: the shapes, the colors, the sizes, the order? Winograd only taught words by description.
+
+Noticed: putting something on a block the robot is holding says "There's no room on the large red block for…". It would be clearer to say "I'm holding the large red block."
+
+### 2026-11-18: teaching a word by example
+
+"Call that a steeple" (also "That is a steeple", "This is called a steeple") teaches a word from an example: `DefineLike x1, steeple`. The user agreed to keep **just the shapes, in order**, bottom first, and ignore colors and sizes.
+- **What it learns.** After stacking the large red block, the red cube and the red pyramid, a steeple is a block, a block and a pyramid.
+- **What fits the word.** For a stack, the stacks with exactly those shapes in that order (`Brain.thingsLike`). For a single thing, anything of its shape: "Call the box a crate."
+- **Building one.** "Build another one" stacks things of those shapes in the given order (`Planner.stack` with ordered), rather than biggest first. It doesn't take apart a steeple that's already built if other pieces will do. It prefers a bottom piece already on the table, and moves it there if not, so the new stack is just those things.
+- **"How do you build a steeple?"** gets "By putting a block on a block, then a pyramid on that."
+- **Focus.** After "Stack up…", the new stack is "it" (and "that"), as after "Build one". Teaching a word makes it the noun in focus, so "Build another one" means a steeple. "Another" is a determiner meaning "a".
+
+Noticed: "Put the red cube on the blue block.  That is a tower." takes "that" to be the red cube, so a "tower" is any block. A person might have meant the two together. Teaching from a single thing is probably rare, but "that" after putting one thing on another might better mean the stack it's now part of.
+
+### 2026-11-18: naming, decided by determiners
+
+The user's rules for "Call X Y":
+- **The determiners decide** (`Meaning.naming`).
+  - "Call the box a crate" means just that box. It's a word for that one thing, `DefineLike` with a single thing, so "the crate" works.
+  - "Call a box a crate", "Call any box a crate" and "Call all boxes crates" teach a kind: `Define crate, x1`. A plural word is made singular.
+  - "Call that a steeple", where "that" is a stack, teaches the kind by example, as before.
+  - "Call it superblock", with no "a", is still a name.
+- **Right after making a stack, naming "that", "it" or "this" names the whole stack.** "Put the red cube on the blue block.  That is a tower." means the two together (`Brain.noteBuilt`, `Brain.thingToName`). This resolves the note in the last entry.
+  - Named stacks can be found by name while they're still stacked: "What is Spire?"  "The stack named Spire."
+  - After a named stack is taken apart, the robot says "Spire isn't a stack any more."
+- **Names keep their case.** "Call it Bob" names it Bob, not bob, and names match in any case. The tokenizer now keeps each word as it was typed.
+- **A bare plural after "are":** "Which blocks are dies?" (`[oneOf x2]`).
+
+Noticed: irregular plurals of taught words ("dice" for "die") aren't known.  (Fixed in the next entry.)
+
+### 2026-11-18: irregular plurals
+
+`assets/irregularPlurals.txt` lists about 130 common nouns whose plurals don't follow the usual rules, one "singular plural" pair per line. `icl.singularize` and `icl.pluralize` check it first.
+- **What's in it:**
+  - changed vowels ("man"/"men", "die"/"dice")
+  - -f to -ves ("leaf"/"leaves")
+  - -o to -oes ("potato"/"potatoes")
+  - Latin and Greek ("cactus"/"cacti", "vertex"/"vertices")
+  - singulars ending in s, so they aren't read as plurals ("bus")
+  - -ie words, which would otherwise be read as -y ("pie"/"pies")
+  - words that are the same in both ("sheep")
+- **Words with two plurals** ("dice", "dies") are listed twice, and the first is the one the robot says.
+- **A new rule:** consonant + y becomes -ies ("body"/"bodies").
+- **Taught words too.** After "Call any cube a die", "Which blocks are dice?" works.
+- **If the file can't be read** (as might happen in the web build, untested), only the rules apply.

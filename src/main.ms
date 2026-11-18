@@ -15,6 +15,7 @@ import "scenes"
 import "display"
 import "brain"
 import "console"
+import "sessionLog"
 
 rl = raylib
 
@@ -38,6 +39,8 @@ display.setup
 theWorld = null
 view = null
 con = console.Console.make
+// On the desktop, keep a log of the session (see sessionLog.ms).
+con.log = sessionLog.SessionLog.make
 
 consoleHeight = 260
 
@@ -67,6 +70,7 @@ end function
 con.addCommand "scene", @sceneCommand, "/scene name: load a scene (" + scenes.names.join(", ") + ")"
 
 con.say "Welcome!  Talk to the robot below, or type /help for examples."
+if con.log then con.say "(This session is being logged to " + con.log.path + ".)"
 loadScene scenes.names[0]
 
 //----------------------------------------------------------------------

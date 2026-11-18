@@ -45,6 +45,7 @@ Brain.world = null
 
 // What we've been talking about, for "it", "them", "one", and "do that".
 Brain.focus = null      // {it: Thing, them: list of Things, noun: string, event: Goal,
+                        //  built: the stack we just made, and when (see thingToName),
                         //  time: the moment we last talked about, for "then",
                         //  itFrom: how "it" came up (see noteFocus)}
 
@@ -75,6 +76,7 @@ Brain.phrases = null    // var -> the user's words for it, when we heard English
 Brain.itMeant = null    // what "it" turned out to mean (see Brain.itNote)
 Brain.failed = false    // did the last reply say what went wrong?
 Brain.question = null   // a question we asked the user: {understanding, choices}
+Brain.lastUnderstanding = null  // the understanding we last acted on (see hear)
 Brain.moving = []       // in a command, the variables for the things to be moved
 Brain.unclear = null    // the variable we just said we didn't understand ("which pyramid?")
 Brain.pending = null    // what to finish if the user tells us which: {understanding, index, var}
@@ -82,7 +84,8 @@ Brain.pending = null    // what to finish if the user tells us which: {understan
 Brain.make = function(theWorld)
 	b = new Brain
 	b.world = theWorld
-	b.focus = {"it": null, "them": null, "noun": null, "event": null, "time": null, "itFrom": null}
+	b.focus = {"it": null, "them": null, "noun": null, "nounAdjectives": [], "event": null, "time": null,
+	  "itFrom": null, "built": null}
 	b.planner = planner.Planner.make(theWorld)
 	b.ownership = []
 	b.definitions = {}
@@ -153,6 +156,7 @@ Brain.handle = function(statement)
 	if statement.kind == "command" then return self.command(statement)
 	if statement.kind == "declare" and statement.verb == "name" then return self.giveName(statement)
 	if statement.kind == "declare" and statement.verb == "define" then return self.define(statement)
+	if statement.kind == "declare" and statement.verb == "defineLike" then return self.defineLike(statement)
 	if statement.kind == "declare" and statement.verb == "own" then return self.learnOwnership(statement, true)
 	if statement.kind == "declare" and statement.verb == "dontOwn" then return self.learnOwnership(statement, false)
 	return "Sorry, I can't do that yet."
@@ -186,7 +190,7 @@ Brain.candidates = function(var)
 		result = self.thingsForHead(d)
 		selfRef = null
 		if self.mentions(d.props, var) then selfRef = var
-		if result != null then result = self.filter(result, d.props, selfRef)
+		if result != null then result = self.filter(result, d.props + self.borrowedAdjectives(d), selfRef)
 	end if
 	self.busy.remove var
 	if self.problem then return null
@@ -278,9 +282,17 @@ Brain.thingsForHead = function(d)
 		end for
 		return result
 	end if
-	// Not a noun we know: maybe it's a name the user gave something.
+	// Not a noun we know: maybe it's a name the user gave something, or
+	// some stack.
 	t = self.world.thing(head)
 	if t then return [t]
+	for s in relations.stacks(self.world)
+		if world.hasName(s, head) then return [s]
+	end for
+	// A stack that was named, but has since been taken apart.
+	for s in self.namedStacks
+		if world.hasName(s, head) then return self.fail(s.names[0] + " isn't a stack any more.")
+	end for
 	return self.fail("Sorry, I don't know the word """ + head + """.")
 end function
 
@@ -288,15 +300,41 @@ end function
 // "a block" means a red block.  We look back through this sentence first,
 // then at the last sentence, and settle for "thing" if there's nothing.
 Brain.antecedentNoun = function(d)
+	return self.antecedent(d).noun
+end function
+
+// What "one" stands for: {noun, adjectives}, from the last description in
+// this sentence with a noun, or else from the last sentence.  The
+// adjectives are its color and size words, as constraints.
+Brain.antecedent = function(d)
 	found = null
 	for item in self.prog.lines
 		if refEquals(item, d) then break
 		if item.kind != "description" then continue
-		if self.isNoun(item.head) then found = item.head
+		if self.isNoun(item.head) then found = item
 	end for
-	if found then return found
-	if self.focus.noun then return self.focus.noun
-	return "thing"
+	if found then return {"noun": found.head, "adjectives": adjectivesOf(found)}
+	if self.focus.noun then return {"noun": self.focus.noun, "adjectives": self.focus.nounAdjectives}
+	return {"noun": "thing", "adjectives": []}
+end function
+
+// The color and size constraints of a description ("red", "large", "tall").
+adjectivesOf = function(d)
+	result = []
+	for c in d.props
+		if ["color", "size", "height", "breadth"].indexOf(c.pred) != null then result.push c
+	end for
+	return result
+end function
+
+// "One" with no adjectives of its own borrows the antecedent's too: after
+// "How many red objects are there?", "Is there one on a green block?"
+// means a red one.  But "a small one" (after "a big red block") is just
+// small: it says what it is, so it borrows only the noun.  (Winograd's
+// "Put a small one onto the green cube" is like that.)
+Brain.borrowedAdjectives = function(d)
+	if d.head != "one" or adjectivesOf(d) then return []
+	return self.antecedent(d).adjectives
 end function
 
 // Keep only the things that meet every constraint.  Superlatives ("the
@@ -614,7 +652,11 @@ Brain.definite = function(var)
 		end if
 		return self.fail(self.noneSeen(d))
 	end if
-	// "Both of the red blocks" says there are two.
+	// "Both of the red blocks" says there are two, and "the three red
+	// objects" says there are three.
+	if d.det == "the" and d.n and things.len != d.n then
+		return self.fail("I see " + speech.numberWord(things.len) + " " + self.phraseFor(d, things.len != 1) + ", not " + speech.numberWord(d.n) + ".")
+	end if
 	if d.det == "both" and things.len != 2 then
 		return self.fail("I see " + speech.numberWord(things.len) + " " + self.phraseFor(d, things.len != 1) + ", not two.")
 	end if
@@ -649,7 +691,19 @@ end function
 // Remember what we just talked about, for "it", "them", and "one".
 Brain.noteFocus = function(var, things)
 	d = self.prog.lookup(var)
-	if d and d.kind == "description" and self.isNoun(d.head) then self.focus.noun = d.head
+	if d and d.kind == "description" and self.isNoun(d.head) then
+		self.focus.noun = d.head
+		self.focus.nounAdjectives = adjectivesOf(d)
+	end if
+	// "One" passes on what it borrowed: after "Is there one on a green
+	// block?" (a red object), "the blue one" is still an object, and a
+	// later bare "one" is still a red object.
+	if d and d.kind == "description" and d.head == "one" then
+		a = self.antecedent(d)
+		self.focus.noun = a.noun
+		self.focus.nounAdjectives = adjectivesOf(d)
+		if not self.focus.nounAdjectives then self.focus.nounAdjectives = a.adjectives
+	end if
 	// After "What is in the box?"  "The blue pyramid.", the last noun said
 	// was the robot's own "pyramid", so "the green one" is a green pyramid.
 	if d and d.kind == "description" and (d.head == "thing" or d.head == "object") and things then
@@ -657,7 +711,10 @@ Brain.noteFocus = function(var, things)
 		for t in things
 			if nouns.indexOf(t.noun) == null then nouns.push t.noun
 		end for
-		if nouns.len == 1 then self.focus.noun = nouns[0]
+		if nouns.len == 1 then
+			self.focus.noun = nouns[0]
+			self.focus.nounAdjectives = []
+		end if
 	end if
 	if things.len == 1 then
 		self.focus.it = things[0]
@@ -1224,6 +1281,11 @@ Brain.command = function(cmd)
 		if problem then return self.fail(problem)
 	end for
 	if cmd.args then self.noteFocus cmd.args[0], groups[0]
+	// A stack we made is "it" (and "that") now: "Call that a steeple."
+	if kind == "stack" then self.noteStack groups[0]
+	if kind == "putOn" and groups[1][0].shape != "table" and groups[1][0].shape != "box" then
+		self.noteBuilt groups[0][-1]
+	end if
 	return "OK."
 end function
 
@@ -1668,6 +1730,16 @@ Brain.answerMethod = function(var)
 		if self.definitions.hasIndex(word) and self.definitions[word].hasIndex("parts") then
 			return "By stacking up " + self.definitions[word].parts + "."
 		end if
+		if self.definitions.hasIndex(word) and self.definitions[word].hasIndex("example") then
+			// "By putting a block on a block, then a pyramid on that."
+			shapes = self.definitions[word].example
+			if shapes.len == 1 then return "I just find " + speech.withArticle(shapes[0]) + "."
+			steps = ["putting " + speech.withArticle(shapes[1]) + " on " + speech.withArticle(shapes[0])]
+			for s in shapes[2:]
+				steps.push speech.withArticle(s) + " on that"
+			end for
+			return "By " + steps.join(", then ") + "."
+		end if
 		return "Sorry, I don't know how to build " + speech.withArticle(word) + "."
 	end if
 	return "I can only explain how to build things you've taught me about."
@@ -1733,6 +1805,9 @@ end function
 // and if another sensible reading would mean something different, we say
 // which we assumed, as Winograd's robot did.
 Brain.hear = function(text)
+	// (lastUnderstanding is what we acted on, for showing what happened
+	// under the hood; actOn sets it.)
+	self.lastUnderstanding = null
 	// The answer to a question we just asked?
 	if self.question then
 		q = self.question
@@ -1748,7 +1823,7 @@ Brain.hear = function(text)
 		if reply then return reply
 	end if
 	r = meaning.understand(text, self.knownNames, self.definitions.indexes)
-	self.lastUnderstanding = r      // for showing what happened under the hood
+	self.lastUnderstanding = r
 	if r.error then return r.error
 	pick = self.pickReading(r)
 	if pick.question then
@@ -1820,6 +1895,7 @@ end function
 // Carry out one reading of what the user said, and reply.
 Brain.actOn = function(r, index)
 	r.chosen = index
+	self.lastUnderstanding = r
 	self.phrases = {}
 	for p in r.phrases[index]
 		self.phrases[p.var] = p.words
@@ -1854,6 +1930,19 @@ Brain.knownNames = function
 	result = []
 	for t in self.world.things
 		result += t.names
+	end for
+	for s in self.namedStacks
+		result += s.names
+	end for
+	return result
+end function
+
+// Every stack the user has named, whether or not it's still stacked.
+Brain.namedStacks = function
+	result = []
+	if not self.world.hasIndex("stackMemo") then return result
+	for s in self.world.stackMemo.values
+		if s.names then result.push s
 	end for
 	return result
 end function
@@ -2072,7 +2161,7 @@ end function
 // "Call it superblock."
 Brain.giveName = function(statement)
 	if statement.args.len != 2 then return self.fail("(Name needs a thing and a name.)")
-	things = self.definite(statement.args[0])
+	things = self.thingToName(statement.args[0])
 	if things == null then return null
 	if things.len != 1 then return self.fail("I can only give a name to one thing at a time.")
 	things[0].names.push statement.args[1]
@@ -2186,6 +2275,122 @@ Brain.define = function(statement)
 	return "I understand."
 end function
 
+//----------------------------------------------------------------------
+// Words taught by example: "Call that a steeple."
+//
+// We keep just the shapes of the example, bottom first: for a stack of the
+// large red block, the small red cube and the red pyramid, that's a block,
+// a block and a pyramid.  Colors and sizes are left out, since they're
+// likely just how this one happened to be made; the shapes and their order
+// are what make it a steeple.  (Winograd's robot only learned words from
+// descriptions.  How much of an example to keep is a guess, and this is
+// ours.)
+//----------------------------------------------------------------------
+
+// "DefineLike x1, steeple"
+Brain.defineLike = function(statement)
+	if statement.args.len != 2 then return self.fail("(DefineLike needs a thing and a word.)")
+	word = statement.args[1]
+	if relations.nouns.indexOf(word) != null then return self.fail("I already know the word """ + word + """.")
+	things = self.thingToName(statement.args[0])
+	if things == null then return null
+	if things.len != 1 then return self.fail("I can only learn a word from one example at a time.")
+	example = things[0]
+	// One particular thing ("Call the box a crate"): the word is for just
+	// that one.  (For any box, say "Call a box a crate".)
+	if example.shape != "stack" then
+		self.definitions[word] = {"things": [example]}
+		self.noteFocus statement.args[0], things
+		self.focus.noun = word
+		self.focus.nounAdjectives = []
+		return "I understand."
+	end if
+	shapes = []
+	if example.shape == "stack" then
+		for p in example.parts
+			shapes.push p.shape
+		end for
+	else
+		shapes.push example.shape
+	end if
+	self.definitions[word] = {"example": shapes}
+	self.noteFocus statement.args[0], things
+	// The new word is the noun we're talking about: "Build another one."
+	self.focus.noun = word
+	self.focus.nounAdjectives = []
+	return "I understand."
+end function
+
+// The things like an example: for one shape, things of that shape; for
+// several, the stacks with just those shapes, in that order.
+Brain.thingsLike = function(shapes)
+	result = []
+	if shapes.len == 1 then
+		for t in self.world.things
+			if t.shape == shapes[0] then result.push t
+		end for
+		return result
+	end if
+	for s in relations.stacks(self.world)
+		if s.parts.len != shapes.len then continue
+		same = true
+		for i in shapes.indexes
+			if s.parts[i].shape != shapes[i] then same = false
+		end for
+		if same then result.push s
+	end for
+	return result
+end function
+
+// Things to build one like the example from: for each shape in turn, the
+// one of that shape that's least trouble to get (and not already picked).
+// We don't take apart one that's already built, if we can help it.  And
+// the bottom one should already be on the table, if one is, so the new
+// one stands on its own rather than on top of something else.
+Brain.exampleParts = function(shapes, word)
+	if shapes.len < 2 then return self.fail("Sorry, I don't know how to build " + speech.withArticle(word) + ".")
+	built = []
+	for s in self.thingsLike(shapes)
+		built += s.parts
+	end for
+	parts = []
+	for i in shapes.indexes
+		choices = []
+		for t in self.world.things
+			if t.shape == shapes[i] and t.movable and not containsRef(parts, t) then choices.push t
+		end for
+		if not choices then return self.fail("I don't see enough " + icl.pluralize(shapes[i]) + " to build " + speech.withArticle(word) + ".")
+		choices = preferring(choices, notIn(choices, built))
+		if i == 0 then choices = preferring(choices, onTable(choices, self.world.table))
+		parts.push self.leastTrouble(choices)[0]
+	end for
+	return parts
+end function
+
+// The better choices if there are any, or else all of them.
+preferring = function(all, better)
+	if better then return better
+	return all
+end function
+
+// The things not in a list.
+notIn = function(things, list)
+	result = []
+	for t in things
+		if not containsRef(list, t) then result.push t
+	end for
+	return result
+end function
+
+// The things resting on the table (and nothing else).
+onTable = function(things, table)
+	result = []
+	for t in things
+		if t.supporters.len == 1 and refEquals(t.supporters[0], table) then result.push t
+	end for
+	return result
+end function
+
 // The things a taught word fits: whatever fits its description, worked out
 // in the program that defined it.
 Brain.definedThings = function(word)
@@ -2193,6 +2398,8 @@ Brain.definedThings = function(word)
 		return self.fail("(I went in circles: """ + word + """ is defined in terms of itself.)")
 	end if
 	def = self.definitions[word]
+	if def.hasIndex("example") then return self.thingsLike(def.example)
+	if def.hasIndex("things") then return def.things[:]
 	self.expanding[word] = true
 	saved = self.enter(def.prog)
 	result = self.candidates(def.var)
@@ -2228,17 +2435,66 @@ Brain.build = function(cmd)
 	parts = self.buildParts(cmd.args[0])
 	if parts == null then return null
 	first = self.world.goals.len
-	problem = self.planner.achieve("stack", parts)
+	// A word taught by example says the order too, bottom first.
+	order = null
+	if self.exampleOf(cmd.args[0]) then order = "ordered"
+	problem = self.planner.achieve("stack", parts, order)
 	root = self.world.goals[first]
 	root.verb = cmd.verb
 	self.focus.event = root
 	if problem then return self.fail(problem)
-	// What we built is "it" now.
+	self.noteStack parts
+	return "OK."
+end function
+
+// The stack these things make is "it" now (what we built, or stacked up).
+Brain.noteStack = function(parts)
 	for s in relations.stacks(self.world)
-		if self.allIn(parts, s.parts) then self.focus.it = s
+		if self.allIn(parts, s.parts) then
+			self.focus.it = s
+			self.focus.built = {"stack": s, "turn": self.world.turn}
+		end if
 	end for
 	self.focus.them = null
-	return "OK."
+end function
+
+// We just put a thing on something (not the table or the box), so it's the
+// top of a stack now.  Note that stack, in case the user names it next.
+Brain.noteBuilt = function(thing)
+	for s in relations.stacks(self.world)
+		if refEquals(s.parts[-1], thing) then self.focus.built = {"stack": s, "turn": self.world.turn}
+	end for
+end function
+
+// What "that", "it" or "this" means when naming something.  Right after
+// we've made a stack (by stacking things up, or putting one thing on
+// another), it's the whole stack: "Put the red cube on the blue block.
+// Call that a tower."  Otherwise it's what it always is.
+Brain.thingToName = function(var)
+	d = self.lookup(var)
+	if d == null then return null
+	b = self.focus.built
+	if d.kind == "description" and ["that", "it", "this"].indexOf(d.head) != null and
+	  b and b.turn == self.world.turn - 1 and not self.selected then
+		// (Only while it's still a stack.)
+		for s in relations.stacks(self.world)
+			if refEquals(s, b.stack) then return [s]
+		end for
+	end if
+	return self.definite(var)
+end function
+
+// If a description's noun is a word taught by example, the example's
+// shapes (bottom first); otherwise null.
+Brain.exampleOf = function(var)
+	d = self.lookup(var)
+	if d == null or d.kind != "description" then return null
+	word = d.head
+	if word == "one" then word = self.antecedentNoun(d)
+	if not self.definitions.hasIndex(word) then return null
+	def = self.definitions[word]
+	if def.hasIndex("example") then return def.example
+	return null
 end function
 
 // Are all of these things in that list?
@@ -2264,6 +2520,8 @@ Brain.buildParts = function(var)
 		return self.fail("Sorry, I don't know how to build " + speech.withArticle(word) + ".")
 	end if
 	def = self.definitions[word]
+	if def.hasIndex("example") then return self.exampleParts(def.example, word)
+	if def.hasIndex("things") then return self.fail("Sorry, I don't know how to build " + speech.withArticle(word) + ".")
 	saved = self.enter(def.prog)
 	parts = self.stackParts(def.var, word)
 	self.leave saved

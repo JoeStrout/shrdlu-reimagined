@@ -4,6 +4,7 @@
 /build-web/
 myprofile.*
 /tests/screens/
+/logs/
 
 # Local link to the raylib-miniscript executable (see README)
 /raylib-miniscript

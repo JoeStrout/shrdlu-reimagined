@@ -528,6 +528,99 @@ say "Undo that.", "OK."
 say "Where is the red cube?", "On the table."
 
 //======================================================================
+// From the user's sessions (logs/session-NNN.txt)
+//======================================================================
+
+conversation "session 1"
+say "How many green blocks are there?", "Two of them."
+say "Are any of them on top of a red block?", "Yes, a large green cube."
+say "Is any green block on top of a red block?", "Yes, a large green cube."
+say "Pick it up.", "OK."
+say "Place it on the table, and put the blue block on top.", "OK."
+say "How many red objects are there?", "Three of them."
+// ("One" is a red object here, not just an object.)
+say "Is there one on top of a green block?", "Yes, the red pyramid."
+// (Now that the robot says just the red pyramid, "the blue one" could be
+// the blue block or the blue pyramid, so it asks, and the user says.)
+say "Grab the blue one.", "I don't understand which blue object you mean."
+say "The one on the green cube.", "OK."
+say "Put it in the box.", "OK."
+say "Clear off the small red cube.", "OK."
+say "Stack up the three red objects.", "OK."
+say "Call that a steeple.", "I understand."
+say "Pick up one of the green cubes.", "OK."
+say "That cube's name is Bob.", "OK."
+say "Name that cube ""Bob"".", "OK."
+say "Put Bob on top of the blue block.", "OK."
+say "Where is Bob?", "On the blue block."
+say "What is supporting Bob?", "The blue block."
+
+conversation "session 1, varied"
+say "Which of the blocks are red?", "The red cube and the large red one."
+say "Is any of the cubes red?", "Yes, the red one."
+say "How many of them are on the table?", "Two of them."
+say "Pick up two of the blocks on the table.", "I can only hold one thing at a time."
+say "What is the large red block supporting?", "A large green cube."
+say "Is the box containing anything?", "Yes."
+say "The red cube is named Rex.", "OK."
+say "What is Rex's color?", "Red."
+say "Its name is Max.", "OK."
+say "Where is Max?", "On the table."
+say "Stack up the two red cubes.", "I see one red cube, not two."
+
+conversation "teaching by example"
+// Only the shapes and their order are kept: a block, a block, and a
+// pyramid on top.  Not the colors or sizes.
+say "Stack up the large red block, the small red cube, and the red pyramid.", "OK."
+say "Call that a steeple.", "I understand."
+say "Are there any steeples?", "Yes, the stack of the large red block, the red cube and the red pyramid."
+say "How do you build a steeple?", "By putting a block on a block, then a pyramid on that."
+say "Build another one.", "OK."
+say "How many steeples are there?", "Two of them."
+say "Is the box a crate?", "Sorry, I don't know the word ""crate""."
+say "Call the box a crate.", "I understand."
+say "Is the box a crate?", "Yes."
+say "Call any cube a die.", "I understand."
+say "Which blocks are dice?", "The red cube, the large green cube which is on the table and the large green cube which supports the green pyramid."
+say "How many dice are on the table?", "Just one."
+say "Is the red cube a die?", "Yes."
+say "Call all pyramids leaves.", "I understand."
+say "How many leaves are there?", "Three of them."
+say "Is the green pyramid a leaf?", "Yes."
+say "Call all pyramids wedges.", "I understand."
+say "How many wedges are there?", "Three of them."
+
+// Naming something just after making a stack names the whole stack.
+conversation "naming a stack"
+say "Put the red cube on the blue block.", "OK."
+say "That is a ""tower"".", "I understand."
+say "How many towers are there?", "Two of them."
+say "Put the green pyramid on the red cube.", "OK."
+say "Call it Spire.", "OK."
+say "What is Spire?", "The stack named Spire."
+say "Where is Spire?", "On the table."
+say "Is the blue block in Spire?", "Yes."
+say "Pick up the red cube.", "OK."
+say "Where is Spire?", "Spire isn't a stack any more."
+
+// Naming one thing names just that thing, even with "a".
+conversation "naming one thing"
+say "Call the box a crate.", "I understand."
+say "How many crates are there?", "Just one."
+say "Pick up the red cube.", "OK."
+say "Call it Rex.", "OK."
+say "Where is Rex?", "In my hand."
+say "What is Rex?", "The cube named Rex."
+
+conversation "one, borrowing"
+say "How many big blocks are there?", "Four of them."
+say "Is there one in the box?", "No."
+say "Is there a small one?", "Yes, the red cube."
+say "How many green pyramids are there?", "Just one."
+say "Where is it?", "On the red cube."
+say "Is there a red one?", "Yes, the red pyramid."
+
+//======================================================================
 // The rest of the 2008 list
 //======================================================================
 
@@ -604,7 +697,7 @@ say "Find all blocks colored red or blue.", "OK."
 conversation "out of scope"
 say "Can a cube roll off the table?", "Sorry, I don't know the word ""roll"".", out("(2008) rolling")
 say "Roll the pyramid to the left.", "Sorry, I don't know the word ""roll"".", out("(2008) rolling")
-say "Will you put the pyramid on its side?", "Sorry, I don't know the word ""its"".", out("(2008) things never change orientation")
+say "Will you put the pyramid on its side?", "Sorry, I don't know the word ""side"".", out("(2008) things never change orientation")
 say "Turn over a red cube.", "Sorry, I don't know the word ""turn"".", out("(2008) things never change orientation")
 say "Does every cube have every face the same?", "Sorry, I don't know the word ""face"".", out("(2008) faces")
 say "Does Bert like himself?", "Sorry, I don't know the word ""bert"".", out("(2008) liking")

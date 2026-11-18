@@ -22,8 +22,9 @@ Written in [MiniScript](https://miniscript.org) using [raylib-miniscript](https:
 ```
 src/                MiniScript source: main.ms, world model, display, brain, planner, console, English parser
 assets/             data files: shaders (later: grammar rules, fonts)
-tests/              test scripts (later: the original Winograd dialogue)
+tests/              test scripts, including Winograd's dialogue and the coverage test
 notes/              design notes and progress log
+logs/               session logs, written by the desktop app (not kept in git)
 ```
 
 ## Running

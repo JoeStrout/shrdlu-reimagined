@@ -72,7 +72,7 @@ Verbs list their **frames**: the shapes they can take, and the ICL each one mean
 
 In a shape, `thing` is a noun phrase. `on` matches any preposition whose `pred` is `on` (so "on", "onto", and "on top of" all count). `up` and `down` are particles, which may come before or after the object: "pick up the block", "pick the block up". (A pronoun object has to come first, "pick it up", but there's no need to enforce that.) Synonyms are just more entries: "grasp" and "pick up" both mean `pickUp`.
 
-**Inflections** come from a few rules rather than separate entries. Plurals are handled by `icl.singularize`. Verbs ending in -s, -ed, and -ing are reduced to their stems. A short table covers the irregular ones (held, told, did, put, began, built), and comparatives and superlatives are listed in full, since there are only a few. The token remembers its form (plural, past, -ing), because agreement and tense help the grammar ("is" vs. "are"; "did you pick" vs. "pick").
+**Inflections** come from a few rules rather than separate entries. Plurals are handled by `icl.singularize` and `icl.pluralize`: the usual rules (-s, -es, consonant + y → -ies), plus the irregular nouns listed in `assets/irregularPlurals.txt` ("die"/"dice", "leaf"/"leaves", "bus"/"buses", "sheep"/"sheep"). That covers words the user teaches too. Verbs ending in -s, -ed, and -ing are reduced to their stems. A short table covers the irregular ones (held, told, did, put, began, built), and comparatives and superlatives are listed in full, since there are only a few. The token remembers its form (plural, past, -ing), because agreement and tense help the grammar ("is" vs. "are"; "did you pick" vs. "pick").
 
 ### 2.3 The grammar
 
@@ -197,6 +197,14 @@ After the dialogue, the grammar grew to cover the many other ways people say the
   - "How do you build a steeple?" (`Ask method`)
   - "How many blocks can you pick up?" (`[could e1]`)
 - **Social.** Greetings, thanks, praise, "help", "who are you?" and so on, each a whole sentence (`Chat hello`).
+- **Naming and teaching words.** What "Call X Y" means depends on the determiners (`Meaning.naming`):
+  - "Call the biggest block superblock": a name for one thing: `Name x1, superblock`.
+  - "Call the box a crate": a word for that one thing: `DefineLike x1, crate`. "The crate" and "Is the box a crate?" work.
+  - "Call that a steeple", where "that" is a stack: also `DefineLike`, but the brain learns the kind by example (the shapes, bottom first).
+  - "Call a box a crate", "Call all boxes crates": a kind of thing, from the description: `Define crate, x1`, as with Winograd's definition.
+  - "That is a steeple" and "This is called a steeple" are like "call that a steeple".
+  - Right after a stack is made, "that", "it" and "this" in naming mean the whole stack (`Brain.thingToName`).
+  - Names keep the case they were typed in ("Bob"), and match in any case.
 
 ## Part 4: Ambiguity
 

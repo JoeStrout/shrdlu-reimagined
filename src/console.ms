@@ -20,6 +20,9 @@
 //
 // The console waits for the robot: a reply appears when the robot has finished
 // acting it out, and anything typed meanwhile waits its turn.
+//
+// If it has a log (see sessionLog.ms), everything said goes there too, along
+// with the ICL for every English sentence.
 
 import "textInput"
 
@@ -32,6 +35,7 @@ Console.lineGap = 4
 Console.padding = 10
 Console.maxEntries = 500
 Console.showIcl = false  // show the ICL for each English sentence?
+Console.log = null       // a SessionLog to write the transcript to, or null
 Console.style = {
 	"panel": "#000000AA", "you": "#9FC9F0", "robot": "#F0F0F0", "note": "#9AA3AD",
 	"icl": "#8FB89A"}
@@ -63,6 +67,7 @@ Console.say = function(text, kind="note")
 	for line in str(text).split(char(10))
 		self.entries.push {"text": line, "kind": kind}
 	end for
+	if self.log then self.log.add kind, text
 	while self.entries.len > self.maxEntries
 		self.entries.pull
 	end while
@@ -108,25 +113,44 @@ Console.handle = function(line)
 		self.pendingReply = self.brain.respond(line[1:].replace(";", char(10)))
 	else
 		self.pendingReply = self.brain.hear(line)
-		if self.showIcl then self.sayIcl self.brain.lastUnderstanding
+		if self.showIcl then
+			self.sayIcl self.brain.lastUnderstanding
+		else if self.log then
+			for icl in self.iclLines(self.brain.lastUnderstanding)
+				self.log.add "icl", icl
+			end for
+		end if
 	end if
 end function
 
 // Show the ICL the brain acted on for an English sentence, one line per
 // line of ICL.
 Console.sayIcl = function(understanding)
-	if understanding == null or not understanding.programs then return
+	for line in self.iclLines(understanding)
+		self.say line, "icl"
+	end for
+end function
+
+// The lines that sayIcl shows: the ICL, indented, noting which reading was
+// chosen if there were several.  If the sentence didn't parse, the parser's
+// complaint.  (Nothing, if a sentence settled an earlier question, like a
+// "2" or "The green one.", so that no new understanding came of it.)
+Console.iclLines = function(understanding)
+	if understanding == null then return []
+	if understanding.error then return ["    (no parse: " + understanding.error + ")"]
+	if not understanding.programs or not understanding.hasIndex("chosen") then return []
 	i = 0
 	if understanding.hasIndex("chosen") then i = understanding.chosen
 	note = ""
 	if understanding.programs.len > 1 then
 		note = "  (reading " + (i + 1) + " of " + understanding.programs.len + ")"
 	end if
-	lines = understanding.programs[i].format.split(char(10))
-	lines[-1] += note
-	for line in lines
-		self.say "    " + line, "icl"
+	result = []
+	for line in understanding.programs[i].format.split(char(10))
+		result.push "    " + line
 	end for
+	result[-1] += note
+	return result
 end function
 
 Console.runCommand = function(text)

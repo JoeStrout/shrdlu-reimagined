@@ -90,7 +90,7 @@ Planner.achieve = function(kind, args, near=null)
 	g.children = []
 	g.turn = w.turn
 	g.status = "active"
-	g.near = near
+	if kind == "putOn" then g.near = near
 	g.start = self.now
 	if g.parent then g.parent.children.push g
 	w.goals.push g
@@ -105,7 +105,9 @@ Planner.achieve = function(kind, args, near=null)
 	else if kind == "getRidOf" then
 		problem = self.getRidOf(args[0])
 	else if kind == "stack" then
-		problem = self.stack(args)
+		// (For a stack, `near` says whether to keep the order given; see
+		// Brain.build.)
+		problem = self.stack(args, near == "ordered")
 	else
 		problem = "I don't know how to " + kind + "."
 	end if
@@ -185,8 +187,26 @@ pyramidRule = "Nothing will stay on top of a pyramid."
 // Stack things up, one on another.  The biggest goes at the bottom, and a
 // pyramid (only one!) can only go on top.  Of two the same size, one
 // standing on the table goes below, so the stack stands on the table.
-Planner.stack = function(things)
+//
+// With ordered, the things go up in the order given instead, bottom first:
+// that's how to build something taught by example, like a steeple.
+Planner.stack = function(things, ordered=false)
 	if things.len < 2 then return "I need at least two things to make a stack."
+	if ordered then
+		// The bottom one stands on the table (or in the box), so that the
+		// stack is just these things.
+		base = things[0]
+		if base.supporters.len != 1 or (base.supporters[0].shape != "table" and base.supporters[0].shape != "box") then
+			problem = self.achieve("getRidOf", [base])
+			if problem then return problem
+		end if
+		for i in range(1, things.len - 1)
+			if things[i-1].shape == "pyramid" then return "I can't. " + pyramidRule
+			problem = self.achieve("putOn", [things[i], things[i-1]])
+			if problem then return problem
+		end for
+		return null
+	end if
 	blocks = []
 	pyramids = []
 	for t in things

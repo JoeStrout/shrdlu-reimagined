@@ -1,0 +1,149 @@
+# Nouns whose plurals don't follow the usual rules (see icl.singularize
+# and icl.pluralize).  One per line: the singular, then the plural.
+#
+# The usual rules: add -s ("block" -> "blocks"); add -es after s, x, ch or
+# sh ("box" -> "boxes"); and change a y after a consonant to -ies ("body"
+# -> "bodies").  Anything else goes here, including:
+#   - words that look as if they follow the rules but don't ("pie" ->
+#     "pies" is regular, but would otherwise be read back as "py")
+#   - words whose singular ends in s ("bus"), which would otherwise be read
+#     as plurals
+#   - words that are the same in both ("sheep")
+# A word may have two plurals ("die": "dice", or "dies" for the tool); the
+# first one listed is the one the robot uses.
+#
+# Lines starting with # are comments.
+
+# Changed vowels, or -en
+man men
+woman women
+child children
+person people
+mouse mice
+louse lice
+goose geese
+foot feet
+tooth teeth
+ox oxen
+die dice
+die dies
+penny pence
+penny pennies
+
+# -f or -fe to -ves
+leaf leaves
+half halves
+shelf shelves
+knife knives
+wife wives
+life lives
+wolf wolves
+loaf loaves
+thief thieves
+calf calves
+elf elves
+self selves
+scarf scarves
+hoof hooves
+sheaf sheaves
+
+# -o to -oes
+potato potatoes
+tomato tomatoes
+hero heroes
+echo echoes
+veto vetoes
+torpedo torpedoes
+domino dominoes
+mosquito mosquitoes
+volcano volcanoes
+tornado tornadoes
+buffalo buffaloes
+cargo cargoes
+
+# Latin and Greek
+cactus cacti
+fungus fungi
+nucleus nuclei
+radius radii
+stimulus stimuli
+syllabus syllabi
+alumnus alumni
+focus foci
+analysis analyses
+axis axes
+basis bases
+crisis crises
+diagnosis diagnoses
+ellipsis ellipses
+hypothesis hypotheses
+oasis oases
+parenthesis parentheses
+synopsis synopses
+thesis theses
+criterion criteria
+phenomenon phenomena
+polyhedron polyhedra
+appendix appendices
+index indices
+matrix matrices
+vertex vertices
+vortex vortices
+apex apices
+datum data
+medium media
+bacterium bacteria
+curriculum curricula
+memorandum memoranda
+stratum strata
+formula formulae
+antenna antennae
+
+# Singulars ending in s, with regular plurals
+bus buses
+gas gases
+lens lenses
+atlas atlases
+canvas canvases
+iris irises
+bonus bonuses
+campus campuses
+virus viruses
+octopus octopuses
+walrus walruses
+circus circuses
+chorus choruses
+plus pluses
+
+# Doubled consonants
+quiz quizzes
+fez fezzes
+
+# Plurals in -ies that come from -ie, not -y
+pie pies
+tie ties
+lie lies
+cookie cookies
+movie movies
+zombie zombies
+calorie calories
+prairie prairies
+rookie rookies
+hippie hippies
+genie genies
+brownie brownies
+
+# The same in both
+sheep sheep
+fish fish
+deer deer
+moose moose
+series series
+species species
+aircraft aircraft
+spacecraft spacecraft
+offspring offspring
+swine swine
+salmon salmon
+trout trout
+bison bison
