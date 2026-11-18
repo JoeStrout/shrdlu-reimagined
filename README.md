@@ -4,12 +4,14 @@ A spiritual successor to Terry Winograd's [SHRDLU](https://en.wikipedia.org/wiki
 
 Type to a robot arm in a 3D world of blocks, pyramids, and a box. Ask it questions, give it commands, teach it new words, and ask it why it did what it did, just as people did with SHRDLU more than fifty years ago.
 
+### ▶ [Try it in your browser: joestrout.github.io/shrdlu-reimagined](https://joestrout.github.io/shrdlu-reimagined/)
+
 **This is not a port or emulation of the original.** If you want to run Winograd's actual code, see [www-shrdlu](https://github.com/tsgouros/www-shrdlu). SHRDLU Reimagined is a clean-sheet reimplementation of the same ideas, and it aims to match and then surpass the original's abilities.
 
 ## Principles
 
 - **All hand-written.** No machine-learning models or LLMs are used at runtime. Parsing, reasoning, planning, and replies are all explicit code and grammar rules that you can read. The point is to show what early conversational AI was like at its best.
-- **Easy to run.** It runs in any modern browser, with nothing to install.
+- **Easy to run.** It runs in any modern browser, with nothing to install: [try it here](https://joestrout.github.io/shrdlu-reimagined/).
 - **Easy to understand.** An "under the hood" view shows each step: the parse, the meaning representation, how references were resolved, the planner's goal tree, and how the reply was built. The source is written to be read.
 - **Predictable physics.** Blocks rest on each other and can topple, but by simple deterministic rules rather than a full rigid-body simulation, so the robot can reason reliably about its world.
 
@@ -24,6 +26,8 @@ src/                MiniScript source: main.ms, world model, display, brain, pla
 assets/             data files: shaders (later: grammar rules, fonts)
 tests/              test scripts, including Winograd's dialogue and the coverage test
 notes/              design notes and progress log
+docs/               the web version, served by GitHub Pages (index.html is hand-written; the rest comes from scripts/update-web.sh)
+scripts/            update-web.sh, which rebuilds the web version in docs/
 logs/               session logs, written by the desktop app (not kept in git)
 ```
 
