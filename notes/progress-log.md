@@ -336,3 +336,19 @@ Teaching "steeple", asking about steeples and "Build one." all pass: 40 turns as
 - **Choosing parts.** Something sitting on a part already chosen costs nothing extra, since it has to be moved anyway. So the robot uses the red pyramid on the green cube rather than fetching the blue one from the box. When stacking, of two things the same size, the one on the table goes at the bottom. The robot now does what Winograd describes: it clears the red cube and two pyramids off one green cube, then stacks the other green cube and the red pyramid on it.
 - **Turn 44** is recorded as ours. The robot sets the red cube down on the left of the steeple, not the right, so the red cube isn't among the things to the right of the red pyramid.
 - In the brain test, "either a green cube or a pyramid" now picks the small green cube already on the red block, and the check was loosened to suit.
+
+### 2026-11-18: the last gaps (turns 3, 22–23, 31 and 43)
+
+Every turn of the dialogue now passes: 45 of 45, with the turns that differ recorded as ours, and no known gaps.
+
+- **Saying what "it" means** (turns 3 and 43). The robot says "By "it", I assume you mean …" in two cases:
+  - When something else mentioned earlier in the same sentence could have been "it". In turn 3, that's the block the robot is holding.
+  - When "it" came from an earlier sentence and the reply is a complaint.
+
+  The phrase echoes the user's words, with "the" in front and "you" and "I" swapped. Questions about events ("Have you picked superblock up?") now make their object "it".
+- **Drop.** "Drop" is its own verb now (`Drop x1`). The robot never drops anything, so "Why did you drop it?" gets "I can't explain a nonexistent event.", unless the user told it to drop something. "Why" and "how" about something that never happened say that too.
+- **"How did you do it?"** (turn 31, recorded as ours). As the answer goes along, "it" moves to each step's main thing, and a thing already named "a large green cube" becomes "that cube". Our answer was "…then putting it on a large green cube", which read as a second cube. Now it's "By putting a large green cube on the large red block, then putting the red cube on it." Winograd's longer answer also had the red block moved first, which ours didn't need, and "letting go" steps, which we leave out.
+- **"On top of"** (turns 22–23) has two senses: directly on, and anywhere above. When they'd mean different things, the robot asks which, listing the choices on separate lines. A bare number as the next input picks one. The dialogue test now treats line breaks as spaces.
+- Not yet:
+  - a three-item comma list in a command ("Stack up the blue block, the small green cube and the red cube.") doesn't parse
+  - yes/no questions aren't asked about when the two senses of "on top of" give different answers

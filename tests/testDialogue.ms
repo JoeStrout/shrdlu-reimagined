@@ -47,7 +47,7 @@ failures = 0
 turnNumber = 0
 
 normalize = function(s)
-	s = s.lower
+	s = s.lower.replace(char(10), " ")
 	while s.indexOf("  ") != null
 		s = s.replace("  ", " ")
 	end while
@@ -97,8 +97,7 @@ turn "Pick up a big red block.", "OK."
 turn "Grasp the pyramid.", "I don't understand which pyramid you mean."
 
 turn "Find a block which is taller than the one you are holding and put it into the box.",
-  "By ""it"", I assume you mean the block which is taller than the one I am holding. OK.",
-  {"gap": "announcing what a pronoun was taken to mean"}
+  "By ""it"", I assume you mean the block which is taller than the one I am holding. OK."
 
 turn "What does the box contain?", "The blue pyramid and the blue block.",
   {"ours": "The blue block and the blue pyramid.", "why": "we list things in a different order"}
@@ -144,11 +143,9 @@ turn "Put a small one onto the green cube which supports a pyramid.", "OK."
 turn "Put the littlest pyramid on top of it.", "OK."
 
 turn "How many things are on top of green cubes?",
-  "I'm not sure what you mean by ""on top of"" in the phrase ""on top of green cubes"". Do you mean: 1 - directly on the surface 2 - anywhere on top of?",
-  {"gap": "asking which meaning of ""on top of"" is meant"}
+  "I'm not sure what you mean by ""on top of"" in the phrase ""on top of green cubes"". Do you mean: 1 - directly on the surface 2 - anywhere on top of?"
 
-turn "2", "Three of them.",
-  {"gap": "answering the robot's question"}
+turn "2", "Three of them."
 
 turn "Had you touched any pyramid before you put the green one on the little cube?", "Yes, the green one."
 
@@ -173,7 +170,8 @@ turn "Why did you do that?", "Because you asked me to."
 
 turn "How did you do it?",
   "By putting a large red block on the table; then letting go of it; then putting a large green cube on it; then letting go of that cube; then putting the red cube on that cube; then letting go of that cube.",
-  {"gap": "our ""how"" answers are shorter"}
+  {"ours": "By putting a large green cube on the large red block, then putting the red cube on it.",
+   "why": "our red block was already in place, and putting something somewhere includes letting go of it"}
 
 turn "How many objects did you touch while you were doing it?", "Four of them."
 
@@ -204,8 +202,8 @@ turn "Call the biggest block ""superblock"".", "OK."
 
 turn "Have you picked superblock up since we began?", "Yes."
 
-turn "Why did you drop it?", "By ""it"", I assume you mean the superblock. I can't explain a nonexistent event.",
-  {"gap": "announcing what a pronoun was taken to mean, and events that didn't happen"}
+// (The robot never drops anything: it sets things down.)
+turn "Why did you drop it?", "By ""it"", I assume you mean the superblock. I can't explain a nonexistent event."
 
 // Our robot builds the steeple as Winograd's did (clearing off a green
 // cube, then stacking the other green cube and the red pyramid on it), but

@@ -157,7 +157,8 @@ Goal procedures create sub-goals as they work (`putOn(X, Y)` → `clearOff(Y)` �
 - "Why did you pick up Z?" → find the grasp event's goal, go to its parent, and say it: "To get rid of it."
 - "Why?" (again) → go up one more level: "To clean off the red cube."
 - At the root: "Because you asked me to."
-- "How did you do it?" → go *down* the tree and list the children.
+- "How did you do it?" → go *down* the tree and list the children. In the list, "it" moves to each step's main thing as the story goes along, and something already named as "a large green cube" is "that cube" after that (`speech.Teller`). We leave out Winograd's "then letting go of it" steps, since putting something somewhere includes letting go of it.
+- "Why did you drop it?" → the robot never drops anything; it sets things down. So a drop is only a goal the user asked for with that word, and otherwise "I can't explain a nonexistent event." (For "when", it's "I don't remember doing that.")
 
 **Events** are the primitive actions, plus failed placements, plus definitions and namings:
 
@@ -336,7 +337,7 @@ x1 = a block [size big] [color red]
 - **"one" / "ones"** borrows a *description*: "a red one" takes the head noun (and other constraints, per the 2008 survey) from the previous description and overrides the adjectives that are stated. **"the X one"** then resolves that combined description definitely.
 - **"them" / "they"** names the most recent *set*.
 - **Clicked objects:** "this one" and "that" while an object is selected resolve to the clicked object. Deixis was something SHRDLU couldn't do.
-- **Assumptions are announced** when they're not obvious: "By 'it', I assume you mean the block which is taller than the one I am holding." Winograd's robot did this, and it's a big part of why it felt like a conversation.
+- **Assumptions are announced** when they're not obvious: "By 'it', I assume you mean the block which is taller than the one I am holding." Winograd's robot did this, and it's a big part of why it felt like a conversation. We announce "it" in two cases. One is when something else mentioned earlier in the same sentence could have been "it" (one particular thing the robot could move). The other is when "it" comes from an earlier sentence and the reply is a complaint, so the user can see whether we misunderstood ("By 'it', I assume you mean the superblock. I can't explain a nonexistent event."). The phrase is the user's own words for it, with "the" in front and "you" and "I" swapped (`speech.echoPhrase`).
 
 The **focus history** (recent descriptions, sets, and objects) is part of the brain's conversational state, alongside the world history.
 

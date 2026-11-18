@@ -84,8 +84,10 @@ end function
 comparative = function(word, pred)
 	add word, {"cat": "comparative", "pred": pred}
 end function
-preposition = function(word, pred)
-	add word, {"cat": "prep", "pred": pred}
+preposition = function(word, pred, sense=null)
+	entry = {"cat": "prep", "pred": pred}
+	if sense then entry.sense = sense
+	add word, entry
 end function
 verb = function(word, meaning)
 	add word, {"cat": "verb"} + meaning
@@ -173,9 +175,15 @@ for pair in [["tall", "asTall"], ["wide", "asWide"], ["big", "asBig"], ["large",
 end for
 
 // Prepositions.  Several words can mean the same relation.
-for w in ["on", "onto", "on top of", "upon", "supported by"]
+for w in ["on", "onto", "upon", "supported by"]
 	preposition w, "on"
 end for
+// "On top of" may mean directly on, or anywhere above.  Each sense says
+// what it means, so that when it matters which one the user meant, the
+// robot can ask (see Brain.senseQuestion).  In a command ("put it on top
+// of the red block"), only "on" fits.
+preposition "on top of", "on", "directly on the surface"
+preposition "on top of", "above", "anywhere on top of"
 for w in ["in", "into", "inside", "inside of", "within"]
 	preposition w, "in"
 end for
@@ -231,7 +239,7 @@ command "set", putFrames
 command "place", putFrames[:2]
 // "Move" alone is for questions: "Why did you move the red pyramid?"
 command "move", putFrames[:2] + [frame("thing", "move")]
-command "drop", [frame("thing", "putDown")]
+command "drop", [frame("thing", "drop")]
 command "clear", [frame("off thing", "clearOff"), frame("out thing", "clearOff")]
 command "clean", [frame("off thing", "clearOff"), frame("out thing", "clearOff")]
 command "empty", [frame("thing", "clearOff"), frame("out thing", "clearOff")]     // (the box)

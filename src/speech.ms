@@ -215,20 +215,23 @@ goalVerbs = {
 
 // A phrase for a goal: "get rid of it", "putting the red cube in the box".
 // `form` is "to" or "ing".  Whatever the conversation is focused on (`it`)
-// is called "it", as a person would.
-goalPhrase = function(theWorld, goal, form, it=null)
+// is called "it", as a person would.  To tell of several steps in a row,
+// pass a Teller instead, which names things as the story goes along.
+goalPhrase = function(theWorld, goal, form, it=null, teller=null)
+	if teller == null then teller = Teller.make(theWorld, it)
+	entry = goalVerbs[goal.kind]
+	verb = entry[form == "ing"]
+	if goal.kind == "putOn" then return verb + " " + teller.name(goal.args[0]) + placePhrase(theWorld, goal.args[1], teller)
 	names = []
 	for t in goal.args
 		// ("It" only for one thing alone, not in a list: "stack up the red
 		// cube, it and the box" would be confusing.)
-		if refEquals(t, it) and goal.kind != "stack" then names.push "it" else names.push nameFor(theWorld, t, false)
+		if goal.kind == "stack" then names.push nameFor(theWorld, t, false) else names.push teller.name(t)
 	end for
-	entry = goalVerbs[goal.kind]
 	// Clearing off the box is emptying it.
 	if goal.kind == "clearOff" and goal.args[0].shape == "box" then entry = ["empty", "emptying", ""]
 	verb = entry[form == "ing"]
 	particle = entry[2]
-	if goal.kind == "putOn" then return verb + " " + names[0] + placePhrase(theWorld, goal.args[1])
 	object = listPhrase(names)
 	if not particle then return verb + " " + object
 	if object == "it" then return verb + " it " + particle
@@ -236,12 +239,89 @@ goalPhrase = function(theWorld, goal, form, it=null)
 end function
 
 // " on the red block", or " in the box".
-placePhrase = function(theWorld, target)
-	if target.shape == "box" then return " in " + nameFor(theWorld, target, false)
-	return " on " + nameFor(theWorld, target, false)
+placePhrase = function(theWorld, target, teller=null)
+	if teller then name = teller.name(target) else name = nameFor(theWorld, target, false)
+	if target.shape == "box" then return " in " + name
+	return " on " + name
+end function
+
+// Naming things while telling of several steps ("How did you do it?"):
+//   "By putting a large green cube on the large red block, then putting
+//    the red cube on it."
+// The thing we're talking about is "it", and after each step, that step's
+// main thing is.  Something already mentioned as "a large green cube" is
+// "that cube" after that, so it doesn't sound like another one.
+Teller = {}
+Teller.world = null
+Teller.it = null
+Teller.mentioned = null
+
+Teller.make = function(theWorld, it=null)
+	t = new Teller
+	t.world = theWorld
+	t.it = it
+	t.mentioned = []
+	return t
+end function
+
+Teller.name = function(thing)
+	if refEquals(thing, self.it) then return "it"
+	name = nameFor(self.world, thing, false)
+	if containsRef(self.mentioned, thing) then
+		if name.indexOf("a ") == 0 or name.indexOf("an ") == 0 then return "that " + thing.noun
+	else
+		self.mentioned.push thing
+	end if
+	return name
+end function
+
+// One step of the story, as an "-ing" phrase.
+Teller.step = function(goal)
+	phrase = goalPhrase(self.world, goal, "ing", null, self)
+	if goal.kind != "stack" then self.it = goal.args[0]
+	return phrase
 end function
 
 // The last step of putting something somewhere: "setting it down on the table".
-settingDownPhrase = function(theWorld, target)
-	return "setting it down" + placePhrase(theWorld, target)
+settingDownPhrase = function(theWorld, target, teller=null)
+	return "setting it down" + placePhrase(theWorld, target, teller)
+end function
+
+//----------------------------------------------------------------------
+// Echoing the user's words
+//----------------------------------------------------------------------
+
+// The user's words for something, as the robot would say them back:
+// "a block which is taller than the one you are holding" becomes "the
+// block which is taller than the one I am holding", and "superblock"
+// becomes "the superblock".  (This is how Winograd's robot said what it
+// took "it" to mean.)  "You" is "I" before a verb, and "me" after one.
+echoSwaps = {"i": "you", "me": "you", "my": "your", "mine": "yours",
+  "myself": "yourself", "your": "my", "yours": "mine", "yourself": "myself"}
+echoAfterYou = {"are": "am", "were": "was"}
+echoAfterI = {"am": "are", "was": "were"}
+echoObjectAfter = ["told", "asked", "to", "for", "by", "with", "than", "gave", "showed"]
+echoPhrase = function(words)
+	list = words.split(" ")
+	result = []
+	previous = ""
+	for w in list
+		said = w
+		if echoSwaps.hasIndex(w) then said = echoSwaps[w]
+		if w == "you" then
+			said = "I"
+			if echoObjectAfter.indexOf(previous) != null then said = "me"
+		end if
+		if previous == "you" and echoAfterYou.hasIndex(w) then said = echoAfterYou[w]
+		if previous == "i" and echoAfterI.hasIndex(w) then said = echoAfterI[w]
+		result.push said
+		previous = w
+	end for
+	// It's one particular thing now, so it's "the" whatever it was.
+	if ["a", "an", "any", "some", "the"].indexOf(result[0]) != null then
+		result[0] = "the"
+	else
+		result.insert 0, "the"
+	end if
+	return result.join(" ")
 end function

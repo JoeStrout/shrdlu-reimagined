@@ -47,6 +47,7 @@ Goal.turn = 0         // which of the user's sentences started it all
 Goal.status = ""      // "active", "done", or "failed"
 Goal.start = null     // [turn, step] when work on it began
 Goal.finish = null    // [turn, step] when it finished
+Goal.verb = null      // for a goal the user asked for, the verb they used ("drop")
 
 // The goal at the top of this one's chain: the thing the user asked for.
 Goal.root = function

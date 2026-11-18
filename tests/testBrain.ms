@@ -275,7 +275,7 @@ hear b, "What color is superblock?", "Red."
 w = newWorld
 b = brain.Brain.make(w)
 hear b, "Move the red pyramid.", "Where should I move it to?  You can say, for example, ""Move it onto the box."""
-hear b, "Why did you move the red pyramid?", "I don't remember doing that."
+hear b, "Why did you move the red pyramid?", "I can't explain a nonexistent event."
 hear b, "Pick up the large red block.", "OK."
 hear b, "Why did you move the small green cube?", "To clean off the large red block."
 hear b, "Why did you move the large red block?", "Because you asked me to."
@@ -405,6 +405,56 @@ hear b, "Build a stack.", "What should I stack up?"
 hear b, "Build two steeples.", "I can only build one thing at a time."
 hear b, "A ""tower"" is the red block.", "That sounds like one particular thing.  To give it a name, say ""Call it tower""."
 hear b, "A ""block"" is a stack which contains a pyramid.", "I already know the word ""block""."
+
+// Saying what "it" was taken to mean: when something else in the sentence
+// could have been "it", or when "it" came from an earlier sentence and the
+// reply is a complaint.  Otherwise "it" goes without saying.
+w = newWorld
+b = brain.Brain.make(w)
+hear b, "Pick up the small green cube.", "OK."
+hear b, "Find a block which is wider than the one you are holding and put it on the table.",
+  "By ""it"", I assume you mean the block which is wider than the one I am holding. OK."
+hear b, "Pick up the red cube and put it in the box.", "OK."
+hear b, "Put it on the blue pyramid.", "By ""it"", I assume you mean the red cube. I can't balance anything on a pyramid."
+hear b, "Put the blue block on it.", "OK."
+
+// The robot never drops anything, unless it's told to.
+w = newWorld
+b = brain.Brain.make(w)
+hear b, "Put the red pyramid on the table.", "OK."
+hear b, "Why did you drop it?", "By ""it"", I assume you mean the red pyramid. I can't explain a nonexistent event."
+hear b, "Drop the small green cube.", "OK."
+hear b, "Why did you drop it?", "Because you asked me to."
+
+// "On top of" can mean directly on, or anywhere above.  When it matters,
+// the robot asks which, and a number answers it.  Saying something else
+// instead drops the question.
+w = newWorld
+b = brain.Brain.make(w)
+question = "I'm not sure what you mean by ""on top of"" in the phrase ""on top of the large red block"".  Do you mean:" +
+  nl + "1 - directly on the surface" + nl + "2 - anywhere on top of?"
+hear b, "How many things are on top of the large red block?", "One of them."
+hear b, "Put the green pyramid on the small green cube.", "OK."
+hear b, "How many things are on top of the large red block?", question
+hear b, "1", "One of them."
+hear b, "How many things are on top of the large red block?", question
+hear b, "2.", "Two of them."
+hear b, "How many things are on top of the large red block?", question
+hear b, "What is the small green cube on top of?", "The large red block."
+hear b, "2", "Sorry, I don't know the word ""2""."
+
+// Telling how something was done: "it" is the thing each step was about,
+// and something already mentioned isn't named as if it were another one.
+w = newWorld
+b = brain.Brain.make(w)
+hear b, "Stack up the blue block and the red cube.", "OK."
+hear b, "How did you do it?", "By putting the red cube on the blue block."
+w = newWorld("winograd")
+teller = speech.Teller.make(w)
+said = [teller.name(w.thing("b3")), teller.name(w.thing("b1")), teller.name(w.thing("b3")), teller.name(w.thing("b1"))]
+check said.join("; ") == "a large green cube; the red cube; that cube; the red cube", "teller: " + said.join("; ")
+teller.it = w.thing("b1")
+check teller.name(w.thing("b1")) == "it", "teller: it"
 
 print checks + " checks, " + failures + " failures."
 exit (failures > 0)

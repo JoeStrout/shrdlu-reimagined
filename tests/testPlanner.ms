@@ -107,7 +107,7 @@ expect b, "e1 = event Do; Ask why e1", "Because you asked me to."
 
 // "How did you do it?"
 expect b, "e1 = event Do; Ask how e1",
-  "By putting it on the large red block, then putting the small green cube on the red cube."
+  "By putting it on the large red block, then putting the small green cube on it."
 // "How did you clear off the red cube?"
 expect b, "x1 = the cube [color red]; e1 = event ClearOff x1; Ask how e1", "By getting rid of the green pyramid."
 expect b, "x1 = the pyramid [color green]; e1 = event GetRidOf x1; Ask how e1",
@@ -125,7 +125,7 @@ expect b, "x1 = the block [color blue]; e1 = event PutIn x1, x2; x2 = the box; A
 expect b, "x1 = the pyramid [color green]; e1 = event PickUp x1 [while e2]; e2 = event Stack x2; x2 = the cube [color red]; Ask why e1",
   "To get rid of it."
 expect b, "x1 = the pyramid [color green]; e1 = event PickUp x1 [before e2]; e2 = event Stack x2; x2 = the cube [color red]; Ask why e1",
-  "I don't remember doing that."
+  "I can't explain a nonexistent event."
 // The red block was picked up (at the start) before the stacking.
 expect b, "x1 = the block [color red] [size big]; e1 = event PickUp x1 [before e2]; e2 = event Stack x2; x2 = the cube [color red]; Ask why e1",
   "Because you asked me to."

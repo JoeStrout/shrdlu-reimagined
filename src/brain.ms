@@ -35,6 +35,7 @@ import "relations"
 import "speech"
 import "planner"
 import "meaning"
+import "parser"
 
 containsRef = @world.containsRef
 
@@ -43,7 +44,8 @@ Brain.world = null
 
 // What we've been talking about, for "it", "them", "one", and "do that".
 Brain.focus = null      // {it: Thing, them: list of Things, noun: string, event: Goal,
-                        //  time: the moment we last talked about, for "then"}
+                        //  time: the moment we last talked about, for "then",
+                        //  itFrom: how "it" came up (see noteFocus)}
 
 // The planner that carries out commands.
 Brain.planner = null
@@ -68,11 +70,15 @@ Brain.problem = null    // a reply explaining what went wrong, or null
 Brain.used = null       // while filtering: see Brain.filter
 Brain.bound = null      // var -> [thing], while testing [did e1] (see didWith)
 Brain.missing = false   // set when a test met "the X" with no X (see referInside)
+Brain.phrases = null    // var -> the user's words for it, when we heard English
+Brain.itMeant = null    // what "it" turned out to mean (see Brain.itNote)
+Brain.failed = false    // did the last reply say what went wrong?
+Brain.question = null   // a question we asked the user: {understanding, choices}
 
 Brain.make = function(theWorld)
 	b = new Brain
 	b.world = theWorld
-	b.focus = {"it": null, "them": null, "noun": null, "event": null, "time": null}
+	b.focus = {"it": null, "them": null, "noun": null, "event": null, "time": null, "itFrom": null}
 	b.planner = planner.Planner.make(theWorld)
 	b.ownership = []
 	b.definitions = {}
@@ -99,6 +105,8 @@ Brain.respond = function(prog)
 	self.prog = prog
 	self.chosen = {}
 	self.world.beginTurn
+	self.itMeant = null
+	self.failed = false
 	replies = []
 	for statement in prog.statements
 		// (Each statement may change the world, so candidates are worked
@@ -109,6 +117,7 @@ Brain.respond = function(prog)
 		reply = self.handle(statement)
 		if self.problem then
 			replies.push self.problem
+			self.failed = true
 			break
 		end if
 		// "Find a block ... and put it in the box" gets just one "OK."
@@ -232,6 +241,7 @@ Brain.thingsForHead = function(d)
 	if (head == "this" or head == "that") and self.selected then return [self.selected]
 	if head == "it" or head == "that" or head == "this" then
 		if self.focus.it == null then return self.fail("I don't know what you mean by """ + head + """.")
+		if head == "it" and self.itMeant == null then self.noteIt d
 		return [self.focus.it]
 	end if
 	if head == "them" or head == "they" then
@@ -576,8 +586,55 @@ end function
 Brain.noteFocus = function(var, things)
 	d = self.prog.lookup(var)
 	if d and d.kind == "description" and self.isNoun(d.head) then self.focus.noun = d.head
-	if things.len == 1 then self.focus.it = things[0]
+	if things.len == 1 then
+		self.focus.it = things[0]
+		words = null
+		if self.phrases and self.phrases.hasIndex(var) then words = self.phrases[var]
+		self.focus.itFrom = {"thing": things[0], "words": words, "turn": self.world.turn}
+	end if
 	if things.len > 1 then self.focus.them = things[:]
+end function
+
+// We've just taken "it" to mean focus.it.  Note what we'll say if we
+// should tell the user so (see itNote), and whether something else in the
+// same sentence could have been "it": "Find a block which is taller than
+// the one you are holding and put it into the box" might mean putting the
+// held one in the box.  We count anything else mentioned earlier in the
+// sentence that is one particular thing the robot could move.
+Brain.noteIt = function(d)
+	it = self.focus.it
+	from = self.focus.itFrom
+	if from == null or not refEquals(from.thing, it) then from = {"thing": it, "words": null, "turn": 0}
+	words = from.words
+	if words and icl.pronouns.hasIndex(words) then words = null
+	if words then phrase = speech.echoPhrase(words) else phrase = speech.specificNamesFor(self.world, [it])
+	self.itMeant = {"phrase": phrase, "thisSentence": from.turn == self.world.turn, "rival": false}
+	if not self.itMeant.thisSentence then return
+	savedProblem = self.problem
+	for item in self.prog.lines
+		if refEquals(item, d) then break
+		if item.kind != "description" or item.plural or not isDefinite(item) then continue
+		if icl.pronouns.hasIndex(item.head) or self.busy.hasIndex(item.var) then continue
+		if self.variesPerThing(item.var) then continue
+		things = self.candidates(item.var)
+		if things and things.len == 1 and things[0].movable and not refEquals(things[0], it) then
+			self.itMeant.rival = true
+		end if
+	end for
+	self.problem = savedProblem
+end function
+
+// "By "it", I assume you mean the block which is taller than the one I am
+// holding."  We say so when "it" could have meant something else in the
+// same sentence, or when it came from an earlier sentence and what we
+// replied was a complaint, so the user can see whether we misunderstood.
+Brain.itNote = function
+	m = self.itMeant
+	if m == null then return null
+	if m.rival or (self.failed and not m.thisSentence) then
+		return "By ""it"", I assume you mean " + m.phrase + "."
+	end if
+	return null
 end function
 
 //----------------------------------------------------------------------
@@ -1002,10 +1059,13 @@ end function
 // Getting rid of something is putting it on the table (see goalArgsFit).
 // "Move" is any goal that carried a thing somewhere: putting it on
 // something, or getting rid of it, or, failing those, picking it up.
+// The robot never drops anything (it sets things down carefully), unless
+// the user told it to drop something (see matchingGoals).
 eventGoals = {
   "pickUp": ["grasp"], "grasp": ["grasp"],
   "putOn": ["putOn", "getRidOf"], "putIn": ["putOn"], "putDown": ["putOn", "getRidOf"],
   "move": ["putOn", "getRidOf", "grasp"],
+  "drop": ["putOn"],
   "touch": ["grasp", "putOn"],
   "clearOff": ["clearOff"], "cleanOff": ["clearOff"],
   "getRidOf": ["getRidOf"],
@@ -1022,7 +1082,7 @@ end function
 // pick it up?" means that time, not some later one.)  "Do" with no
 // arguments ("why did you do that?") means the goal we were just talking
 // about.
-Brain.findGoal = function(var)
+Brain.findGoal = function(var, noneMessage="I don't remember doing that.")
 	e = self.lookup(var)
 	if e == null then return null
 	if e.kind != "event" then return self.fail("(" + var + " isn't an event.)")
@@ -1032,7 +1092,7 @@ Brain.findGoal = function(var)
 	end if
 	goals = self.matchingGoals(var)
 	if goals == null then return null
-	if not goals then return self.fail("I don't remember doing that.")
+	if not goals then return self.fail(noneMessage)
 	if self.focus.event and containsRef(goals, self.focus.event) then return self.focus.event
 	return goals[0]
 end function
@@ -1064,6 +1124,7 @@ Brain.matchingGoals = function(var)
 		for i in range(self.world.goals.len - 1, 0, -1)
 			g = self.world.goals[i]
 			if g.kind != kind or g.status == "failed" then continue
+			if e.verb == "drop" and g.verb != "drop" then continue
 			if not self.goalArgsFit(g, e.verb, refs) then continue
 			if not self.goalTimesFit(g, e.props, others) then continue
 			result.push g
@@ -1085,7 +1146,11 @@ Brain.answerDid = function(var)
 	e = self.lookup(var)
 	for i in e.args.indexes
 		ref = self.refer(e.args[i])
-		if ref.quantity != "some" then continue
+		if ref.quantity != "some" then
+			// "Have you picked superblock up?"  Then superblock is "it".
+			if i == 0 then self.noteFocus e.args[i], ref.things
+			continue
+		end if
 		things = []
 		for g in goals
 			for t in self.goalArg(g, e.verb, i)
@@ -1147,7 +1212,11 @@ Brain.goalTimesFit = function(g, props, others)
 end function
 
 Brain.answerAboutEvent = function(q)
-	g = self.findGoal(q.target)
+	if q.q == "when" then
+		g = self.findGoal(q.target)
+	else
+		g = self.findGoal(q.target, "I can't explain a nonexistent event.")
+	end if
 	if g == null then return null
 	if g.kind != "stack" then self.focus.it = g.args[0]
 	it = self.focus.it
@@ -1164,12 +1233,14 @@ Brain.answerAboutEvent = function(q)
 		// How it was done: the steps it took.
 		self.focus.event = g
 		steps = []
+		teller = speech.Teller.make(w, it)
 		for child in g.children
-			steps.push speech.goalPhrase(w, child, "ing", it)
+			steps.push teller.step(child)
 		end for
 		// The final move isn't a goal of its own, but it's worth mentioning.
-		if g.kind == "putOn" then steps.push speech.settingDownPhrase(w, g.args[1])
-		if g.kind == "getRidOf" then steps.push speech.settingDownPhrase(w, w.table)
+		teller.it = it
+		if g.kind == "putOn" then steps.push speech.settingDownPhrase(w, g.args[1], teller)
+		if g.kind == "getRidOf" then steps.push speech.settingDownPhrase(w, w.table, teller)
 		if not steps then return "I just did it."
 		return "By " + steps.join(", then ") + "."
 	else
@@ -1191,14 +1262,51 @@ end function
 // and if another sensible reading would mean something different, we say
 // which we assumed, as Winograd's robot did.
 Brain.hear = function(text)
+	// The answer to a question we just asked?
+	if self.question then
+		q = self.question
+		self.question = null
+		n = choiceNumber(text)
+		if n and n <= q.choices.len then return self.actOn(q.understanding, q.choices[n-1])
+	end if
 	r = meaning.understand(text, self.knownNames, self.definitions.indexes)
 	self.lastUnderstanding = r      // for showing what happened under the hood
 	if r.error then return r.error
 	pick = self.pickReading(r)
-	r.chosen = pick.index
-	reply = self.respond(r.programs[pick.index])
+	if pick.question then
+		self.question = pick.question
+		return pick.question.text
+	end if
+	reply = self.actOn(r, pick.index)
 	if pick.note then reply = pick.note + " " + reply
 	return reply
+end function
+
+// Carry out one reading of what the user said, and reply.
+Brain.actOn = function(r, index)
+	r.chosen = index
+	self.phrases = {}
+	for p in r.phrases[index]
+		self.phrases[p.var] = p.words
+	end for
+	reply = self.respond(r.programs[index])
+	self.phrases = null
+	note = self.itNote
+	if note then reply = note + " " + reply
+	return reply
+end function
+
+// "2" (or "2." or " 2 ") as an answer to "Do you mean: 1 - ... 2 - ...?",
+// or null if it isn't a number like that.
+choiceNumber = function(text)
+	digits = ""
+	for c in text
+		if c == " " or c == "." then continue
+		if "0123456789".indexOf(c) == null then return null
+		digits += c
+	end for
+	if not digits then return null
+	return digits.val
 end function
 
 // The names the user has given things, which the parser should treat as
@@ -1211,10 +1319,11 @@ Brain.knownNames = function
 	return result
 end function
 
-// Which reading to act on: {index, note}, where note (if any) says which
-// reading we assumed.
+// Which reading to act on: {index, note, question}, where note (if any)
+// says which reading we assumed, and question (if any) is a question to
+// ask the user instead (see senseQuestion).
 Brain.pickReading = function(r)
-	if r.programs.len == 1 then return {"index": 0, "note": null}
+	if r.programs.len == 1 then return {"index": 0, "note": null, "question": null}
 	checks = []
 	sensible = []
 	for i in r.programs.indexes
@@ -1223,14 +1332,65 @@ Brain.pickReading = function(r)
 	end for
 	// If none make sense, go with the most likely one, so the user hears
 	// what's wrong with it.
-	if not sensible then return {"index": 0, "note": null}
+	if not sensible then return {"index": 0, "note": null, "question": null}
 	best = sensible[0]
 	for i in sensible[1:]
 		if checks[i].summary != checks[best].summary then
-			return {"index": best, "note": self.assumption(r, best, i)}
+			q = self.senseQuestion(r, sensible, checks)
+			if q then return {"index": null, "note": null, "question": q}
+			return {"index": best, "note": self.assumption(r, best, i), "question": null}
 		end if
 	end for
-	return {"index": best, "note": null}
+	return {"index": best, "note": null, "question": null}
+end function
+
+// Some words have senses the robot shouldn't guess between ("on top of":
+// directly on, or anywhere above; see the lexicon).  When readings that
+// use different senses of such a word would mean different things, we
+// ask which the user meant, as Winograd's robot did:
+//   I'm not sure what you mean by "on top of" in the phrase "on top of
+//   green cubes".  Do you mean:
+//   1 - directly on the surface
+//   2 - anywhere on top of?
+// Returns {text, understanding, choices}, where choices are the readings
+// to act on for each answer; or null if there's nothing to ask.
+Brain.senseQuestion = function(r, sensible, checks)
+	choices = []
+	senses = []
+	summaries = []
+	word = null
+	phrase = null
+	for i in sensible
+		pp = sensePhrase(r.trees[i])
+		if pp == null then continue
+		sense = pp.parts[0].entry.sense
+		if senses.indexOf(sense) != null then continue
+		choices.push i
+		senses.push sense
+		if summaries.indexOf(checks[i].summary) == null then summaries.push checks[i].summary
+		word = pp.parts[0].word
+		phrase = parser.wordsOf(pp)
+	end for
+	if summaries.len < 2 then return null
+	lines = ["I'm not sure what you mean by """ + word + """ in the phrase """ + phrase + """.  Do you mean:"]
+	for i in senses.indexes
+		lines.push (i+1) + " - " + senses[i]
+	end for
+	return {"text": lines.join(char(10)) + "?", "understanding": r, "choices": choices}
+end function
+
+// The first phrase in a parse tree whose preposition has a sense to ask
+// about ("on top of green cubes"), or null.
+sensePhrase = function(tree)
+	if parser.isLeaf(tree) then return null
+	if tree.cat == "PP" and tree.parts[0].hasIndex("entry") and tree.parts[0].entry.hasIndex("sense") then
+		return tree
+	end if
+	for p in tree.parts
+		found = sensePhrase(p)
+		if found then return found
+	end for
+	return null
 end function
 
 // "By 'the block in the box', I assume you mean the blue block."  The

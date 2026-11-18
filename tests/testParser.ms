@@ -210,7 +210,7 @@ expect "Put a small one onto the green cube which supports a pyramid.",
   "x1 = a one [size small]; x2 = the cube [color green] [supports x3]; x3 = a pyramid; PutOn x1, x2"
 expect "put the blue block down", "x1 = the block [color blue]; PutDown x1"
 expect "put down the blue block", "x1 = the block [color blue]; PutDown x1"
-expect "drop it", "x1 = it; PutDown x1"
+expect "drop it", "x1 = it; Drop x1"
 expect "Clear off the red cube.", "x1 = the cube [color red]; ClearOff x1"
 expect "Get rid of it.", "x1 = it; GetRidOf x1"
 expect "Stack up two pyramids.", "x1 = 2 pyramids; Stack x1"
@@ -343,6 +343,13 @@ if readings.len == 2 then
 	check readings[1] == "x1 = the pyramid [color blue] [on x2]; x2 = the block; x3 = the box; PutIn x1, x3",
 	  "then: put the pyramid that's on the block into the box"
 end if
+
+// "On top of" means directly on, or anywhere above; in a command, only "on".
+readings = readingsOf("How many things are on top of green cubes?")
+check readings == ["x1 = how-many things [on x2]; x2 = any cubes [color green]; Ask count x1",
+  "x1 = how-many things [above x2]; x2 = any cubes [color green]; Ask count x1"], "two senses of on top of: " + readings
+readings = readingsOf("Put the littlest pyramid on top of it.")
+check readings.len == 1, "one sense of on top of in a command: " + readings
 
 r = parser.parse("Pick up a big red block.")
 check parser.formatTree(r.trees[0]) == "(S command (CMD (V pick) up (NP a (ADJ big) (ADJ red) (N block))))",
