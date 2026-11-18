@@ -91,9 +91,9 @@ check cats("blocks") == ["noun/plural"], "blocks is a plural noun"
 check cats("boxes") == ["noun/plural"], "boxes is a plural noun"
 check cats("supports") == ["verb/s"], "supports is a verb with -s"
 check cats("touches") == ["verb/s", "verb/s"], "touches is a verb with -es (a relation, and an action)"
-check cats("holding") == ["verb/ing"], "holding is a verb with -ing"
+check cats("holding") == ["verb/ing", "verb/ing"], "holding is a verb with -ing (a relation, and a command)"
 check cats("sitting") == ["verb/ing"], "sitting doubles its t"
-check cats("held") == ["verb/ed"], "held is irregular"
+check cats("held") == ["verb/ed", "verb/ed"], "held is irregular"
 check cats("that") == ["det/base", "pronoun/base", "relpro/base"], "that is a determiner, a pronoun, and a relative pronoun"
 check cats("frobnicate") == [], "unknown words have no entries"
 
@@ -272,7 +272,7 @@ expect "What did the red cube support before you started to clean it off?",
 expect "How did you do it?", "e1 = event Do; Ask how e1"
 expect "Why did you clear off that cube?", "x1 = the cube; e1 = event ClearOff x1; Ask why e1"
 expect "Call the biggest block ""superblock"".", "x1 = the block [biggest]; Name x1, superblock"
-expect "Thank you.", "Thank"
+expect "Thank you.", "Chat thanks"
 
 // Ownership.
 expect "The blue pyramid is mine.", "x1 = the pyramid [color blue]; Own x1"

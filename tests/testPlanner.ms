@@ -121,10 +121,14 @@ expect b, "e1 = event Do; Ask why e1", "To get rid of it."
 expect b, "x1 = the block [color blue]; e1 = event PutIn x1, x2; x2 = the box; Ask when e1", "When you asked me to."
 
 // Events in time: "Why did you pick up the green pyramid while you were
-// stacking up the red cube?"  (It wasn't before or after.)
+// stacking up the red cube?"  It was part of that, and it also counts as
+// before it, since it was getting ready (clearing off the red cube).  It
+// wasn't after.
 expect b, "x1 = the pyramid [color green]; e1 = event PickUp x1 [while e2]; e2 = event Stack x2; x2 = the cube [color red]; Ask why e1",
   "To get rid of it."
 expect b, "x1 = the pyramid [color green]; e1 = event PickUp x1 [before e2]; e2 = event Stack x2; x2 = the cube [color red]; Ask why e1",
+  "To get rid of it."
+expect b, "x1 = the pyramid [color green]; e1 = event PickUp x1 [after e2]; e2 = event Stack x2; x2 = the cube [color red]; Ask why e1",
   "I can't explain a nonexistent event."
 // The red block was picked up (at the start) before the stacking.
 expect b, "x1 = the block [color red] [size big]; e1 = event PickUp x1 [before e2]; e2 = event Stack x2; x2 = the cube [color red]; Ask why e1",
@@ -170,7 +174,7 @@ b2 = brain.Brain.make(w2)
 expect b2, "x1 = every cube [color green]; x2 = the box; PutIn x1, x2", "OK."
 check relations.binary["in"](w2, w2.thing("b4"), w2.thing("box")) and relations.binary["in"](w2, w2.thing("b5"), w2.thing("box")), "both green cubes in the box"
 expect b2, "x1 = the block [color yellow]; x2 = the box; PutIn x1, x2",
-  "There's no room for the yellow block in the box."
+  "There's no room in the box for the yellow block."
 
 // Putting something on a thing that's already occupied: the planner clears
 // it off first.

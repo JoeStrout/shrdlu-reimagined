@@ -203,24 +203,32 @@ end function
 // Talking about goals, for "why", "how", and "when" questions.
 //----------------------------------------------------------------------
 
-// The verb for each kind of goal: [to-form, ing-form, particle].  Verbs
-// like "pick up" have a particle that moves after a pronoun: we say "pick
-// up the red cube" but "pick it up".
+// The verb for each kind of goal: [to-form, ing-form, particle, past].
+// Verbs like "pick up" have a particle that moves after a pronoun: we say
+// "pick up the red cube" but "pick it up".
 goalVerbs = {
-  "grasp":    ["pick", "picking", "up"],
-  "putOn":    ["put", "putting", ""],
-  "clearOff": ["clean", "cleaning", "off"],
-  "getRidOf": ["get rid of", "getting rid of", ""],
-  "stack":    ["stack", "stacking", "up"]}
+  "grasp":    ["pick", "picking", "up", "picked"],
+  "putOn":    ["put", "putting", "", "put"],
+  "clearOff": ["clean", "cleaning", "off", "cleaned"],
+  "getRidOf": ["get rid of", "getting rid of", "", "got rid of"],
+  "stack":    ["stack", "stacking", "up", "stacked"]}
+emptyVerb = ["empty", "emptying", "", "emptied"]
 
-// A phrase for a goal: "get rid of it", "putting the red cube in the box".
-// `form` is "to" or "ing".  Whatever the conversation is focused on (`it`)
+// Which of a goal verb's forms to use.
+formIndex = {"to": 0, "ing": 1, "ed": 3}
+
+// A phrase for a goal: "get rid of it", "putting the red cube in the box",
+// "picked up the red cube".  `form` is "to", "ing" or "ed".  Whatever the conversation is focused on (`it`)
 // is called "it", as a person would.  To tell of several steps in a row,
 // pass a Teller instead, which names things as the story goes along.
 goalPhrase = function(theWorld, goal, form, it=null, teller=null)
 	if teller == null then teller = Teller.make(theWorld, it)
 	entry = goalVerbs[goal.kind]
-	verb = entry[form == "ing"]
+	verb = entry[formIndex[form]]
+	if goal.kind == "putOn" and goal.near and goal.near.hasIndex("rel") then
+		// "put the red cube next to the blue block"
+		return verb + " " + teller.name(goal.args[0]) + " " + relationPhrase(theWorld, goal.near.rel, goal.near.other)
+	end if
 	if goal.kind == "putOn" then return verb + " " + teller.name(goal.args[0]) + placePhrase(theWorld, goal.args[1], teller)
 	names = []
 	for t in goal.args
@@ -229,13 +237,25 @@ goalPhrase = function(theWorld, goal, form, it=null, teller=null)
 		if goal.kind == "stack" then names.push nameFor(theWorld, t, false) else names.push teller.name(t)
 	end for
 	// Clearing off the box is emptying it.
-	if goal.kind == "clearOff" and goal.args[0].shape == "box" then entry = ["empty", "emptying", ""]
-	verb = entry[form == "ing"]
+	if goal.kind == "clearOff" and goal.args[0].shape == "box" then entry = emptyVerb
+	verb = entry[formIndex[form]]
 	particle = entry[2]
 	object = listPhrase(names)
 	if not particle then return verb + " " + object
 	if object == "it" then return verb + " it " + particle
 	return verb + " " + particle + " " + object
+end function
+
+// Where something is in relation to another thing, for "There's no room
+// next to the blue block for the red cube": "next to the blue block", "to
+// the left of the box", "at the front of the table".
+relationWords = {"nextTo": "next to", "leftOf": "to the left of", "rightOf": "to the right of",
+  "behind": "behind", "inFrontOf": "in front of"}
+tableSideWords = {"nextTo": "on", "leftOf": "on the left of", "rightOf": "on the right of",
+  "behind": "at the back of", "inFrontOf": "at the front of"}
+relationPhrase = function(theWorld, rel, other)
+	if other.shape == "table" then return tableSideWords[rel] + " the table"
+	return relationWords[rel] + " " + nameFor(theWorld, other)
 end function
 
 // " on the red block", or " in the box".
@@ -302,6 +322,19 @@ echoAfterYou = {"are": "am", "were": "was"}
 echoAfterI = {"am": "are", "was": "were"}
 echoObjectAfter = ["told", "asked", "to", "for", "by", "with", "than", "gave", "showed"]
 echoPhrase = function(words)
+	result = swapPersons(words).split(" ")
+	// It's one particular thing now, so it's "the" whatever it was.
+	if ["a", "an", "any", "some", "the"].indexOf(result[0]) != null then
+		result[0] = "the"
+	else
+		result.insert 0, "the"
+	end if
+	return result.join(" ")
+end function
+
+// The user's words as the robot would say them: "the one you are holding"
+// becomes "the one I am holding".
+swapPersons = function(words)
 	list = words.split(" ")
 	result = []
 	previous = ""
@@ -317,11 +350,5 @@ echoPhrase = function(words)
 		result.push said
 		previous = w
 	end for
-	// It's one particular thing now, so it's "the" whatever it was.
-	if ["a", "an", "any", "some", "the"].indexOf(result[0]) != null then
-		result[0] = "the"
-	else
-		result.insert 0, "the"
-	end if
 	return result.join(" ")
 end function

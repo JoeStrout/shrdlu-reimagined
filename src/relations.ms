@@ -86,19 +86,23 @@ end function
 // the volume, so the middle of the range is the geometric mean of the
 // ends, not the average.  In Winograd's scene that makes both green cubes
 // large (volume 8, where the blocks range from 1 to 16).
-sizeClass = function(theWorld, thing)
+//
+// The same goes for height ("tall", "short") and breadth ("wide",
+// "narrow"): pass the measure to use.
+sizeClass = function(theWorld, thing, measure=null)
+	if @measure == null then measure = @volumeOf
 	lo = null
 	hi = null
 	for t in theWorld.things
 		if t.shape != thing.shape then continue
-		v = t.volume
+		v = measure(t)
 		if lo == null or v < lo then lo = v
 		if hi == null or v > hi then hi = v
 	end for
 	if lo == null or hi - lo < eps then return null
 	middle = sqrt(hi * lo)
-	if thing.volume > middle + eps then return "big"
-	if thing.volume < middle - eps then return "small"
+	if measure(thing) > middle + eps then return "big"
+	if measure(thing) < middle - eps then return "small"
 	return null
 end function
 
@@ -132,6 +136,10 @@ end function
 unary.clear = function(theWorld, a)
 	return theWorld.isClear(a)
 end function
+// "Is the box empty?"  Nothing in it, or on it.
+unary.empty = function(theWorld, a)
+	return theWorld.thingsOn(a).len == 0
+end function
 // "Is it supported?"  Resting on something (not held, and not the table).
 unary.supported = function(theWorld, a)
 	return a.supporters.len > 0
@@ -148,6 +156,16 @@ end function
 valued.size = function(theWorld, a, value)
 	if not sizeWords.hasIndex(value) then return false
 	return sizeClass(theWorld, a) == sizeWords[value]
+end function
+// [height tall], [height short]
+valued.height = function(theWorld, a, value)
+	if value == "tall" then want = "big" else want = "small"
+	return sizeClass(theWorld, a, @heightOf) == want
+end function
+// [breadth wide], [breadth narrow]
+valued.breadth = function(theWorld, a, value)
+	if value == "wide" then want = "big" else want = "small"
+	return sizeClass(theWorld, a, @breadthOf) == want
 end function
 
 //----------------------------------------------------------------------
@@ -193,7 +211,9 @@ binary.touches = function(theWorld, a, b)
 end function
 
 // Next to: standing at the same level, no more than half a unit apart.
+// (Not the table, which everything on it stands in.)
 binary.nextTo = function(theWorld, a, b)
+	if a.shape == "table" or b.shape == "table" then return false
 	if abs(a.y - b.y) > eps then return false
 	return gapBetween(a, b) <= 0.5 + eps
 end function
@@ -201,21 +221,39 @@ end function
 // Directions, as seen by the user at the front of the table.  `a` is behind
 // `b` if a's center is at or beyond b's back edge (and so on for the others).
 // The table is under everything, so it's in no direction from anything.
+// But something can be at the back of the table, or on its left: then
+// it's in the back third, or the left third (see tableSide).
 binary.behind = function(theWorld, a, b)
-	if a.shape == "table" or b.shape == "table" then return false
+	if a.shape == "table" then return false
+	if b.shape == "table" then return tableSide(a, b, "back")
 	return a.z <= bounds(b).minZ + eps
 end function
 binary.inFrontOf = function(theWorld, a, b)
-	if a.shape == "table" or b.shape == "table" then return false
+	if a.shape == "table" then return false
+	if b.shape == "table" then return tableSide(a, b, "front")
 	return a.z >= bounds(b).maxZ - eps
 end function
 binary.leftOf = function(theWorld, a, b)
-	if a.shape == "table" or b.shape == "table" then return false
+	if a.shape == "table" then return false
+	if b.shape == "table" then return tableSide(a, b, "left")
 	return a.x <= bounds(b).minX + eps
 end function
 binary.rightOf = function(theWorld, a, b)
-	if a.shape == "table" or b.shape == "table" then return false
+	if a.shape == "table" then return false
+	if b.shape == "table" then return tableSide(a, b, "right")
 	return a.x >= bounds(b).maxX - eps
+end function
+
+// Is the thing's center in that third of the table: "left", "right",
+// "back" or "front"?
+tableSide = function(thing, table, side)
+	tb = bounds(table)
+	width = tb.maxX - tb.minX
+	depth = tb.maxZ - tb.minZ
+	if side == "left" then return thing.x < tb.minX + width/3
+	if side == "right" then return thing.x > tb.maxX - width/3
+	if side == "back" then return thing.z < tb.minZ + depth/3
+	return thing.z > tb.maxZ - depth/3
 end function
 
 // Comparisons.  "Wide" uses breadth (the larger horizontal side), and "big"
@@ -265,18 +303,29 @@ superlatives = {
   "widest": [@breadthOf, 1], "narrowest": [@breadthOf, -1]}
 
 // The things in the list that are the most (or least) of something.
-// Ties are all kept.
-extreme = function(things, pred)
+// Ties are all kept.  With a rank, the things in that place: rank 2 of
+// "tallest" means the second tallest.  Things the same height share a
+// place, so with blocks 4, 3, 2, 2 and 1 tall, the third tallest are the
+// two that are 2 tall.
+extreme = function(things, pred, rank=1)
 	measure = @superlatives[pred][0]
 	direction = superlatives[pred][1]
-	best = null
+	// The different values, worst first (so the best is last).
+	values = []
 	for t in things
 		v = measure(t) * direction
-		if best == null or v > best then best = v
+		found = false
+		for u in values
+			if abs(u - v) < eps then found = true
+		end for
+		if not found then values.push v
 	end for
+	values.sort
+	if rank > values.len then return []
+	wanted = values[values.len - rank]
 	result = []
 	for t in things
-		if measure(t) * direction >= best - eps then result.push t
+		if abs(measure(t) * direction - wanted) < eps then result.push t
 	end for
 	return result
 end function

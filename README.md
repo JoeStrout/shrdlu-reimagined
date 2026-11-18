@@ -48,7 +48,10 @@ MS_IMPORT_PATH=src:tests miniscript tests/testPlanner.ms
 MS_IMPORT_PATH=src:tests miniscript tests/testConsole.ms
 MS_IMPORT_PATH=src miniscript tests/testParser.ms
 MS_IMPORT_PATH=src miniscript tests/testDialogue.ms
+MS_IMPORT_PATH=src miniscript tests/testCoverage.ms
 ```
+
+`testDialogue.ms` plays Winograd's dialogue; `testCoverage.ms` checks the many other ways people might say things.
 
 ## History
 

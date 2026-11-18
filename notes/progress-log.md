@@ -352,3 +352,65 @@ Every turn of the dialogue now passes: 45 of 45, with the turns that differ reco
 - Not yet:
   - a three-item comma list in a command ("Stack up the blue block, the small green cube and the red cube.") doesn't parse
   - yes/no questions aren't asked about when the two senses of "on top of" give different answers
+
+### 2026-11-18: the coverage test, and a round of breadth
+
+With the dialogue done, the next goal is breadth: understanding the many ways a newcomer might say things, without them having to learn the robot's grammar. That's in the spirit of the 2009 project, which added a template whenever a sentence failed; here we add to the grammar instead.
+
+**`tests/testCoverage.ms`** is the new breadth test, and the single list to work from:
+- the rest of the 2008 project's sentence list, in its original order
+- everything noted along the way in this log as "noticed" or "not yet"
+- many new phrasings, written to differ from the examples
+Each conversation starts afresh in Winograd's scene. A line is a pass, a **gap** (with the reply we want and why we can't give it yet), or **out of scope** (with the honest reply we give now). `-g` shows what each gap says now.
+
+At first: 81 pass, 97 gaps, 13 out of scope (of 191 lines). Run against the 2008 list, only about 12 of the 97 sentences after the dialogue got a sensible reply. Now: 306 pass, 5 gaps, 47 out of scope (of 358). All the other tests still pass, including the dialogue.
+
+**What was added.** The grammar is summarized in the parser design note, §3.5. The highlights:
+- **Many more words and frames:**
+  - commands: take, get, hold, remove, stick, pile up, bring, make, let go, clean up
+  - "take X off Y" / "out of Y", "move X to Y", "put X under Y"
+  - "now", "first", "please", "I want you to", "try to", "go" before a command
+  - commands joined by "then"
+  - lists with commas
+- **New questions:**
+  - "What is it?", "Where is X?", "What are you holding?", "Is your hand empty?"
+  - "Do you see X?", "What is X's color?", "How big is X?"
+  - "Which is taller, A or B?", "Which block is the biggest?", "the second tallest"
+  - "What did you do last?", "What did you have to move to do that?"
+  - "How do you build a steeple?", "How many blocks can you pick up?"
+  - greetings, "help", and thanks
+- **Predicates:**
+  - joined: "red and on the table", "green but not on the table"
+  - "Is it a block?" and "Is it the tallest block?"
+  - "tall", "short", "wide", "narrow" (relative, like "big")
+  - "colored red or blue", "empty", "something green"
+- **"Taller than any pyramid"** means taller than every one.
+- **Settling which one** (from the log): after "I don't understand which green cube you mean.", a bare noun phrase finishes the earlier request. That works for "The one supporting a pyramid.", "The green one.", "Any one.", and "The small one." (`Brain.settle`).
+- **"It" earlier in the same sentence** (from the log): when no reading makes sense with "it" as the thing in focus, the brain tries "it" as each earlier noun phrase, nearest first, and says which it took. "What did the box contain before you put the red cube in it?" gets "By "it", I assume you mean the box. The blue pyramid." (`meaning.itReadings`)
+- **"Before" includes getting ready** (from the log). Something done as a step of e2, to things other than what e2 is about, counts as before e2. Picking up the green pyramid to clear the red cube counts as before putting the red cube in the box. Turn 25 still works, since picking up the green pyramid itself is part of putting it somewhere, not before.
+- **"Can a block be in the box?"** (from the log): the robot tries it with the planner, then puts the world (and its memory) back exactly as it was (`Brain.wouldWork`). Now "Yes."
+- **"On top of" in yes/no questions** (from the log): a yes/no question's answer is now part of what a reading means. So the robot asks which sense was meant when the two senses give different answers.
+- **Complaints keep the description** (from the log): "I don't see any blocks in the box.", "I don't see any pyramids on the blue block.", and "I don't see any" (not "enough") when there are none.
+- **Placing things by relation:** "Put X next to / to the left of / behind / in front of Y" is a putOn goal with a `near`, on whatever Y stands on. Relative to the table, those mean its thirds: "at the front of the table", "on the left side of the table". Left/right/behind/in front of the table are now true of things in that third.
+- **Putting back and undoing:** "Put it back" returns a thing to where it was before it was last moved. "Undo that" puts back everything moved for the last request, the last one moved first.
+- **"Everything", as something to move,** means the things that can move. So "Drop everything" no longer says "I can't move the box".
+- **Small changes to replies:**
+  - "Just one." for a count of one
+  - shapes with "a" ("A pyramid.")
+  - "There's no room in the box for X." (the place first, since "no room for X which is on Y in the box" was hard to follow)
+  - "Yes, two large green cubes." rather than "two of them: two large green cubes"
+  - "Yes." when asked whether you can see something already named
+- **Bugs fixed along the way:**
+  - "By "it", I assume you mean the which block." Words from a question are no longer echoed.
+  - After "What is in the box?"  "The blue pyramid.", "the green one" now borrows "pyramid" from the answer, not "thing".
+  - "Stack X on top of Y" is no longer read as a stack of one thing.
+  - The table was "next to" everything on it.
+
+**Still gaps:** standing orders ("Don't ever touch the blue block"), "the rest", and "Are there any more?".
+
+**Out of scope for now:** rolling, faces, turning things over, hypotheticals ("if"), free areas, "Bert" and liking, and questions about the robot's knowledge ("How do you know?").
+
+Noticed:
+- Putting something in the box takes about 0.4 s; that was already so. Placing three things "at the front of the table" takes 1.3 s. Both come from `Planner.findSpace` trying every grid spot. Worth speeding up before the web build.
+- A noun phrase on its own, with no question to answer ("The one you are holding."), gets "That seems to stop in the middle."; a better reply would say what's missing.
+- "Undo that" makes one root goal per thing put back. So "What did you do last?" after an undo describes just the last of those steps.

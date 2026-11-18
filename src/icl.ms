@@ -60,7 +60,7 @@ determiners = ["a", "the", "both", "any", "every", "no", "which", "how-many"]
 pronouns = {"it": false, "that": false, "this": false, "them": true, "they": true}
 
 // The kinds of question that aren't asking about an attribute.
-questionKinds = ["exists", "count", "which", "yes-no", "why", "how", "when", "can"]
+questionKinds = ["exists", "count", "which", "identify", "where", "yes-no", "why", "how", "when", "can", "what", "method"]
 
 // Statements that teach the robot something, rather than asking it to act.
 declareVerbs = ["define", "name", "own", "dontOwn"]

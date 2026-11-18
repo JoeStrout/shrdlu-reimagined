@@ -36,6 +36,7 @@ import "speech"
 import "planner"
 import "meaning"
 import "parser"
+import "lexicon"
 
 containsRef = @world.containsRef
 
@@ -74,6 +75,9 @@ Brain.phrases = null    // var -> the user's words for it, when we heard English
 Brain.itMeant = null    // what "it" turned out to mean (see Brain.itNote)
 Brain.failed = false    // did the last reply say what went wrong?
 Brain.question = null   // a question we asked the user: {understanding, choices}
+Brain.moving = []       // in a command, the variables for the things to be moved
+Brain.unclear = null    // the variable we just said we didn't understand ("which pyramid?")
+Brain.pending = null    // what to finish if the user tells us which: {understanding, index, var}
 
 Brain.make = function(theWorld)
 	b = new Brain
@@ -107,6 +111,7 @@ Brain.respond = function(prog)
 	self.world.beginTurn
 	self.itMeant = null
 	self.failed = false
+	self.unclear = null
 	replies = []
 	for statement in prog.statements
 		// (Each statement may change the world, so candidates are worked
@@ -126,8 +131,23 @@ Brain.respond = function(prog)
 	return replies.join(" ")
 end function
 
+// What the robot says to social niceties ("Thank you.", "Hello.", "Help.").
+// The lexicon says which reply goes with which words.
+chatReplies = {
+  "thanks": "You're welcome!",
+  "hello": "Hello!  Ask me to move things, or ask me about them.",
+  "praise": "Thank you!",
+  "sorry": "That's all right.",
+  "help": "I can pick things up, put them on or in other things, stack them up, and clear things off.  " +
+    "You can ask me where things are, what color or size they are, what's on or in something, " +
+    "and why, how or when I did something.  You can also teach me new words.  (Type /help for examples.)",
+  "who": "I'm a robot arm.  I live in this little world of blocks, and I'll do what you ask, if I can.",
+  "stop": "OK.",
+  "bye": "Goodbye!",
+  "ok": "OK."}
+
 Brain.handle = function(statement)
-	if statement.hasIndex("verb") and statement.verb == "thank" then return "You're welcome!"
+	if statement.hasIndex("verb") and statement.verb == "chat" then return chatReplies[statement.args[0]]
 	if statement.kind == "ask" then return self.answer(statement)
 	if statement.kind == "claim" then return self.checkClaim(statement)
 	if statement.kind == "command" then return self.command(statement)
@@ -318,7 +338,11 @@ Brain.filter = function(things, props, selfRef=null)
 	self.used = savedUsed
 	result = passed
 	for c in props
-		if relations.superlatives.hasIndex(c.pred) then result = relations.extreme(result, c.pred)
+		if not relations.superlatives.hasIndex(c.pred) then continue
+		// [tallest], or [tallest 2] for the second tallest
+		rank = 1
+		if c.args then rank = c.args[0]
+		result = relations.extreme(result, c.pred, rank)
 	end for
 	return self.settleInnerDefinites(passed, usedBy, result)
 end function
@@ -344,7 +368,8 @@ Brain.settleInnerDefinites = function(passed, usedBy, survivors)
 		meant = self.inFocus(related[var])
 		if meant.len != 1 then
 			d = self.lookup(var)
-			return self.fail("I don't understand which " + speech.descriptionPhrase(d, false) + " you mean.")
+			self.unclear = var
+			return self.fail("I don't understand which " + self.phraseFor(d, false, false) + " you mean.")
 		end if
 		// Keep only the survivors related to the one meant.
 		kept = []
@@ -407,6 +432,19 @@ Brain.test = function(thing, c)
 		end for
 		return false
 	end if
+	if pred == "and" then
+		for part in c.args
+			if not self.test(thing, part) then return false
+		end for
+		return true
+	end if
+	if pred == "oneOf" then return self.isOneOf(thing, c.args[0])
+	if pred == "could" then
+		// "Which blocks can you pick up?"  The ones that can be moved.
+		e = self.lookup(c.args[0])
+		if e.verb == "pickUp" or e.verb == "grasp" then return thing.movable
+		return self.fail("I'm not sure what I could " + e.verb + ".")
+	end if
 	if pred == "commanded" then return self.wasCommanded(thing, c.args)
 	if pred == "owned" then return self.owns(thing) == true
 	if pred == "did" then return self.didWith(thing, c.args[0])
@@ -415,6 +453,7 @@ Brain.test = function(thing, c)
 		if self.focus.time == null then return self.fail("I'm not sure when you mean by ""then"".")
 		return self.testAt(thing, c.args[0], self.focus.time)
 	end if
+	if relations.superlatives.hasIndex(pred) then return self.isMost(thing, c)
 	if relations.unary.hasIndex(pred) then return relations.unary[pred](self.world, thing)
 	if relations.valued.hasIndex(pred) then return relations.valued[pred](self.world, thing, c.args[0])
 	if relations.binary.hasIndex(pred) then
@@ -435,6 +474,30 @@ Brain.test = function(thing, c)
 		return self.quantityOk(ref, count)
 	end if
 	return self.fail("I don't know what """ + pred + """ means.")
+end function
+
+// "Is the blue block the tallest?"  A superlative as a claim: is it the
+// tallest of the things its noun fits (here, the tallest block)?
+Brain.isMost = function(thing, c)
+	rank = 1
+	if c.args then rank = c.args[0]
+	kind = []
+	for t in self.world.things
+		if relations.nounFits(t, thing.noun) then kind.push t
+	end for
+	return containsRef(relations.extreme(kind, c.pred, rank), thing)
+end function
+
+// [oneOf x3]: is this thing one of the things x3 means?  ("Which is taller,
+// the red cube or the blue block?"  Each of those must mean one thing.)
+Brain.isOneOf = function(thing, var)
+	if self.isGroup(var) then members = self.lookup(var).members else members = [var]
+	for member in members
+		ref = self.refer(member)
+		if ref == null then return false
+		if containsRef(ref.things, thing) then return true
+	end for
+	return false
 end function
 
 // A relation to joined noun phrases: "supports the red cube and a pyramid"
@@ -549,18 +612,19 @@ Brain.definite = function(var)
 		if relations.nouns.indexOf(d.head) == null and d.head != "one" then
 			return self.fail("I don't see anything like that.")
 		end if
-		return self.fail("I don't see any " + speech.descriptionPhrase(d, true) + ".")
+		return self.fail(self.noneSeen(d))
 	end if
 	// "Both of the red blocks" says there are two.
 	if d.det == "both" and things.len != 2 then
-		return self.fail("I see " + speech.numberWord(things.len) + " " + speech.descriptionPhrase(d, things.len != 1) + ", not two.")
+		return self.fail("I see " + speech.numberWord(things.len) + " " + self.phraseFor(d, things.len != 1) + ", not two.")
 	end if
 	if things.len > 1 and not d.plural then
 		// "The pyramid", when there are several, can still mean the one
 		// that's clicked on, or the one we were just talking about.
 		things = self.inFocus(things)
 		if things.len != 1 then
-			return self.fail("I don't understand which " + speech.descriptionPhrase(d, false) + " you mean.")
+			self.unclear = var
+			return self.fail("I don't understand which " + self.phraseFor(d, false, false) + " you mean.")
 		end if
 	end if
 	return things
@@ -586,10 +650,22 @@ end function
 Brain.noteFocus = function(var, things)
 	d = self.prog.lookup(var)
 	if d and d.kind == "description" and self.isNoun(d.head) then self.focus.noun = d.head
+	// After "What is in the box?"  "The blue pyramid.", the last noun said
+	// was the robot's own "pyramid", so "the green one" is a green pyramid.
+	if d and d.kind == "description" and (d.head == "thing" or d.head == "object") and things then
+		nouns = []
+		for t in things
+			if nouns.indexOf(t.noun) == null then nouns.push t.noun
+		end for
+		if nouns.len == 1 then self.focus.noun = nouns[0]
+	end if
 	if things.len == 1 then
 		self.focus.it = things[0]
 		words = null
 		if self.phrases and self.phrases.hasIndex(var) then words = self.phrases[var]
+		// (Not the words of a question, like "which block": "the which
+		// block" isn't a name for anything.)
+		if d and d.kind == "description" and (d.det == "which" or d.det == "how-many") then words = null
 		self.focus.itFrom = {"thing": things[0], "words": words, "turn": self.world.turn}
 	end if
 	if things.len > 1 then self.focus.them = things[:]
@@ -637,16 +713,117 @@ Brain.itNote = function
 	return null
 end function
 
+// Words for a description, for complaints: "red pyramids", "blocks in the
+// box", "pyramids on the blue block", "blocks taller than the blue block".
+// With full false, just the adjectives and the noun: "I don't understand
+// which green cube you mean."  ("One" borrows its noun, as always.)
+Brain.phraseFor = function(d, plural, full=true)
+	words = []
+	for c in d.props
+		if not relations.superlatives.hasIndex(c.pred) then continue
+		if c.args then words.push lexicon.ordinals[c.args[0]]     // "seventh tallest"
+		words.push c.pred
+	end for
+	for c in d.props
+		if ["size", "height", "breadth", "color"].indexOf(c.pred) == null or c.args.len != 1 then continue
+		if c.args[0] == "big" then words.push "large" else words.push c.args[0]     // as we say it
+	end for
+	noun = d.head
+	if noun == "one" then noun = self.antecedentNoun(d)
+	if icl.pronouns.hasIndex(noun) then noun = "thing"
+	if plural then noun = icl.pluralize(noun)
+	words.push noun
+	if full then
+		for c in d.props
+			tail = self.constraintPhrase(c, plural)
+			if tail then words.push tail
+		end for
+	end if
+	return words.join(" ")
+end function
+
+// "I don't see any blue pyramids in the box."  ("Anything", not "any
+// things".)
+Brain.noneSeen = function(d)
+	phrase = self.phraseFor(d, true)
+	if phrase.indexOf("things") == 0 then return "I don't see anything" + phrase[6:] + "."
+	return "I don't see any " + phrase + "."
+end function
+
+// How we say a relation after a noun: "on", "to the left of", "taller than".
+relationWords = {"on": "on", "in": "in", "above": "above", "below": "below",
+  "behind": "behind", "inFrontOf": "in front of", "leftOf": "to the left of",
+  "rightOf": "to the right of", "nextTo": "next to",
+  "taller": "taller than", "shorter": "shorter than", "wider": "wider than",
+  "narrower": "narrower than", "bigger": "bigger than", "smaller": "smaller than",
+  "asTall": "as tall as", "asWide": "as wide as", "asBig": "as big as"}
+// And relations that are verbs: "which support", "which supports".
+relationVerbs = {"supports": "support", "contains": "contain", "touches": "touch"}
+
+// The words for a constraint after a noun ("in the box", "which support
+// a pyramid", "not on the table"), or null if we have none.
+Brain.constraintPhrase = function(c, plural)
+	if c.pred == "not" and c.args and c.args[0] isa map then
+		inner = self.constraintPhrase(c.args[0], plural)
+		if inner == null then return null
+		if inner.indexOf("which ") == 0 then return null
+		return "not " + inner
+	end if
+	if c.pred == "held" then return "which I am holding"
+	if c.args.len != 1 or not icl.isVar(c.args[0]) then return null
+	other = self.argPhrase(c.args[0])
+	if other == null then return null
+	if relationWords.hasIndex(c.pred) then return relationWords[c.pred] + " " + other
+	if relationVerbs.hasIndex(c.pred) then
+		verb = relationVerbs[c.pred]
+		if not plural then verb = icl.pluralize(verb)     // "supports"
+		return "which " + verb + " " + other
+	end if
+	return null
+end function
+
+// The user's words for what a variable means, including a group: "two
+// green cubes and a pyramid".
+Brain.wordsFor = function(var)
+	item = self.prog.lookup(var)
+	if item and item.kind == "group" then
+		parts = []
+		for m in item.members
+			parts.push self.wordsFor(m)
+		end for
+		return speech.listPhrase(parts, item.join)
+	end if
+	return self.argPhrase(var)
+end function
+
+// The words for what a variable means, as the user said it if we heard
+// English ("the blue block"), or else from its description.
+Brain.argPhrase = function(var)
+	if self.phrases and self.phrases.hasIndex(var) then return speech.swapPersons(self.phrases[var])
+	d = self.prog.lookup(var)
+	if d == null or d.kind != "description" then return null
+	if icl.pronouns.hasIndex(d.head) then return d.head
+	phrase = self.phraseFor(d, d.plural, false)
+	if d.det == "the" then return "the " + phrase
+	if d.det == "a" then return speech.withArticle(phrase)
+	if d.det == "any" or d.det == null then return phrase
+	return null
+end function
+
 //----------------------------------------------------------------------
 // Questions
 //----------------------------------------------------------------------
 
 Brain.answer = function(q)
 	if q.q == "why" or q.q == "how" or q.q == "when" then return self.answerAboutEvent(q)
+	if q.q == "what" then return self.answerWhatDone(q.target)
+	if q.q == "method" then return self.answerMethod(q.target)
 	if q.q == "exists" and icl.isVar(q.target) and q.target[0] == "e" then return self.answerDid(q.target)
 	if q.q == "exists" then return self.answerExists(q.target)
 	if q.q == "count" then return self.answerCount(q.target)
 	if q.q == "which" then return self.answerWhich(q.target)
+	if q.q == "identify" then return self.answerIdentify(q.target)
+	if q.q == "where" then return self.answerWhere(q.target)
 	if q.q == "attribute" then return self.answerAttribute(q.target, q.attr)
 	if q.q == "yes-no" then return self.answerYesNo(q.target, q.claim)
 	if q.q == "can" then return self.answerCan(q)
@@ -661,6 +838,8 @@ Brain.answerExists = function(var)
 	// (Even with none, the noun is what we're talking about: "Are there any
 	// steeples now?"  "No."  "Build one.")
 	if not things then return "No."
+	// "Can you see the box?"  There's no need to name what was named.
+	if isDefinite(self.lookup(var)) then return "Yes."
 	return "Yes, " + self.countedNames(var, things) + "."
 end function
 
@@ -672,16 +851,27 @@ Brain.countedNames = function(var, things)
 	d = self.lookup(var)
 	names = speech.namesFor(self.world, things, d.head)
 	if things.len == 1 then return names
+	// "Yes, two large green cubes." rather than "Yes, two of them: two
+	// large green cubes."
+	if names.indexOf(speech.numberWord(things.len) + " ") == 0 and names.indexOf(" and ") == null then return names
 	if d.head == "thing" then return speech.numberWord(things.len) + " things: " + names
 	return speech.numberWord(things.len) + " of them: " + names
 end function
 
 // "How many blocks are not in the box?"
+//
+// "How many blocks can you pick up?" is really asking how many at once.
 Brain.answerCount = function(var)
+	for c in self.lookup(var).props
+		if c.pred != "could" then continue
+		e = self.lookup(c.args[0])
+		if e.verb == "pickUp" or e.verb == "grasp" then return "I can only hold one thing at a time."
+	end for
 	things = self.candidates(var)
 	if things == null then return null
 	if not things then return "None."
 	self.noteFocus var, things
+	if things.len == 1 then return "Just one."
 	return speech.capitalize(speech.numberWord(things.len)) + " of them."
 end function
 
@@ -703,6 +893,56 @@ Brain.answerWhich = function(var)
 	return speech.capitalize(names) + "."
 end function
 
+// "What is it?"  "Which is the tallest block?"  We say what the noun phrase
+// means, by name.
+Brain.answerIdentify = function(var)
+	d = self.lookup(var)
+	if d == null then return null
+	if isDefinite(d) then things = self.definite(var) else things = self.candidates(var)
+	if things == null then return null
+	if not things then return "Nothing."
+	self.noteFocus var, things
+	return speech.capitalize(speech.specificNamesFor(self.world, things)) + "."
+end function
+
+// "Where is the red cube?"  "On the table."  For several things, we say
+// where each is, with the things in one place together: "The red cube and a
+// large green cube are on the table, and a large green cube is on the large
+// red block."
+Brain.answerWhere = function(var)
+	d = self.lookup(var)
+	if d == null then return null
+	if isDefinite(d) then things = self.definite(var) else things = self.candidates(var)
+	if things == null then return null
+	if not things then return self.fail(self.noneSeen(d))
+	self.noteFocus var, things
+	if things.len == 1 then return speech.capitalize(self.placeOf(things[0])) + "."
+	places = []     // in the order we come to them
+	groups = {}     // place -> the things there
+	for t in things
+		place = self.placeOf(t)
+		if not groups.hasIndex(place) then
+			places.push place
+			groups[place] = []
+		end if
+		groups[place].push t
+	end for
+	clauses = []
+	for place in places
+		if groups[place].len == 1 then verb = " is " else verb = " are "
+		clauses.push speech.namesFor(self.world, groups[place]) + verb + place
+	end for
+	if clauses.len == 1 then return speech.capitalize(clauses[0]) + "."
+	return speech.capitalize(clauses[:-1].join(", ") + ", and " + clauses[-1]) + "."
+end function
+
+// Where a thing is, as a phrase: "on the table", "in the box", "in my hand".
+Brain.placeOf = function(thing)
+	if refEquals(self.world.hand.holding, thing) then return "in my hand"
+	if not thing.supporters then return "nowhere"     // (the table)
+	return speech.placePhrase(self.world, thing.supporters[0])[1:]
+end function
+
 // "What color is it?"
 Brain.answerAttribute = function(var, attr)
 	// "What color is the pyramid?" needs a pyramid we both know about.
@@ -713,7 +953,7 @@ Brain.answerAttribute = function(var, attr)
 	if ["a", "an", "any"].indexOf(d.det) != null then
 		things = self.candidates(var)
 		if things == null then return null
-		if not things then return self.fail("I don't see any " + speech.descriptionPhrase(d, true) + ".")
+		if not things then return self.fail(self.noneSeen(d))
 		things = self.choose(var)
 	else
 		things = self.definite(var)
@@ -731,7 +971,7 @@ end function
 
 Brain.attributeOf = function(thing, attr)
 	if attr == "color" then return thing.color
-	if attr == "shape" then return thing.noun
+	if attr == "shape" then return speech.withArticle(thing.noun)     // "a pyramid"
 	if attr == "size" then
 		word = speech.sizeWord(self.world, thing)
 		if word == null then return "medium-sized"
@@ -771,9 +1011,10 @@ Brain.answerYesNo = function(var, claim)
 end function
 
 // "Can a pyramid be supported by a block?"  Yes, if one is now.  "Can a
-// pyramid support a pyramid?"  No, since nothing stays on a pyramid.
-// Otherwise we don't know.  ("Can the table pick up blocks?"  No: only
-// the robot does things.)
+// pyramid support a pyramid?"  No, since nothing stays on a pyramid.  "Can
+// a block be in the box?"  Yes, if we could put one there (we try it out,
+// and put everything back).  Otherwise we don't know.  ("Can the table
+// pick up blocks?"  No: only the robot does things.)
 Brain.answerCan = function(q)
 	if q.target[0] == "e" then
 		e = self.lookup(q.target)
@@ -791,7 +1032,47 @@ Brain.answerCan = function(q)
 		if self.problem then return null
 	end for
 	if self.cantBe(q.target, q.claim) then return "No. " + planner.pyramidRule
+	if self.couldMake(q.target, q.claim) then return "Yes."
+	if self.problem then return null
 	return "I don't know."
+end function
+
+// Could we make the claim true of one of the things a variable means, by
+// putting something somewhere?  For [on x2] or [in x2], we try putting one
+// of them on (or in) one of x2's things; for [supports x2], one of x2's
+// things on one of them.  (We try a few of each, nearest first.)
+Brain.couldMake = function(var, claim)
+	if claim.args.len != 1 or not icl.isVar(claim.args[0]) then return false
+	if ["on", "in", "supports"].indexOf(claim.pred) == null then return false
+	these = self.candidates(var)
+	ref = self.refer(claim.args[0])
+	if these == null or ref == null then return false
+	these = self.leastTrouble(these)[:3]
+	those = self.leastTrouble(ref.things)[:3]
+	for a in these
+		for b in those
+			if refEquals(a, b) then continue
+			if claim.pred == "supports" then pair = [b, a] else pair = [a, b]
+			if not pair[0].movable then continue
+			if self.wouldWork("putOn", pair) then return true
+		end for
+	end for
+	return false
+end function
+
+// Would the planner manage this goal?  We try it, then put the world back
+// just as it was, forgetting what we did.
+Brain.wouldWork = function(kind, args)
+	w = self.world
+	saved = {"snapshot": w.snapshot, "hand": w.hand.pos[:], "goals": w.goals.len,
+	  "history": w.history.len, "step": w.step}
+	problem = self.planner.achieve(kind, args)
+	w.restore saved.snapshot
+	w.hand.pos = saved.hand
+	w.goals = w.goals[:saved.goals]
+	w.history = w.history[:saved.history]
+	w.step = saved.step
+	return problem == null
 end function
 
 // Is this against the way things work?  For now we know one rule: nothing
@@ -849,12 +1130,15 @@ end function
 commandGoals = {
   "pickUp": "grasp", "grasp": "grasp",
   "putOn": "putOn", "putIn": "putOn", "putDown": "putDown", "drop": "putDown",
+  "putAt": "putAt",
   "clearOff": "clearOff", "cleanOff": "clearOff",
   "getRidOf": "getRidOf",
   "stack": "stack", "stackUp": "stack",
   "find": "find"}
 
 Brain.command = function(cmd)
+	if cmd.verb == "undo" then return self.undo
+	if cmd.verb == "putBack" then return self.putBackCommand(cmd)
 	// "Move the red pyramid" (with nowhere to move it) makes sense as a
 	// question ("Why did you move it?"), but not as a command.
 	if cmd.verb == "move" then return self.fail("Where should I move it to?  You can say, for example, ""Move it onto the box.""")
@@ -863,13 +1147,18 @@ Brain.command = function(cmd)
 		return "Sorry, I don't know how to " + cmd.verb + "."
 	end if
 	kind = commandGoals[cmd.verb]
-	// Work out what each argument means.
+	// Work out what each argument means.  The things to be moved are the
+	// first argument (or all of them, for a stack).
+	if kind == "stack" then self.moving = cmd.args else self.moving = cmd.args[:1]
+	if kind == "clearOff" or kind == "find" then self.moving = []
 	groups = []
 	for var in cmd.args
+		if not icl.isVar(var) then continue     // a word, like the nextTo in PutAt
 		things = self.choose(var)
 		if things == null then return null
 		groups.push things
 	end for
+	self.moving = []
 
 	// Turn the command into a list of goals for the planner.
 	table = self.world.table
@@ -894,6 +1183,21 @@ Brain.command = function(cmd)
 		for t in groups[0]
 			goals.push ["putOn", [t, groups[1][0]]]
 		end for
+	else if kind == "putAt" then
+		// "Put the red cube next to the blue block": on whatever the blue
+		// block stands on, at a spot next to it.  (PutAt x1, nextTo, x2)
+		if groups.len != 2 or cmd.args.len != 3 then return self.fail("(" + cmd.verb + " needs two things and a relation.)")
+		if groups[1].len > 1 then return self.fail("I can only put things in one place at a time.")
+		other = groups[1][0]
+		surface = self.world.table
+		if other.shape == "table" then
+			surface = other
+		else if other.supporters then
+			surface = other.supporters[0]
+		end if
+		for t in groups[0]
+			goals.push ["putOn", [t, surface], {"rel": cmd.args[1], "other": other}]
+		end for
 	else if kind == "stack" then
 		all = []
 		for g in groups
@@ -911,13 +1215,91 @@ Brain.command = function(cmd)
 	// the verb they used (for "the one I told you to pick up").
 	for g in goals
 		first = self.world.goals.len
-		problem = self.planner.achieve(g[0], g[1])
+		near = null
+		if g.len > 2 then near = g[2]
+		problem = self.planner.achieve(g[0], g[1], near)
 		root = self.world.goals[first]
 		root.verb = cmd.verb
 		self.focus.event = root
 		if problem then return self.fail(problem)
 	end for
 	if cmd.args then self.noteFocus cmd.args[0], groups[0]
+	return "OK."
+end function
+
+//----------------------------------------------------------------------
+// Putting things back, and undoing
+//----------------------------------------------------------------------
+
+// "Put it back": back where it was before we last moved it.
+Brain.putBackCommand = function(cmd)
+	if cmd.args.len != 1 then return self.fail("(PutBack needs one thing.)")
+	self.moving = cmd.args
+	things = self.choose(cmd.args[0])
+	self.moving = []
+	if things == null then return null
+	for t in things
+		g = self.lastMoveOf(t)
+		if g == null then return self.fail("I haven't moved " + speech.nameFor(self.world, t) + ".")
+		if not self.putBack(t, g.root.start, cmd.verb) then return null
+	end for
+	self.noteFocus cmd.args[0], things
+	return "OK."
+end function
+
+// The last goal that moved this thing, or null.
+Brain.lastMoveOf = function(thing)
+	for i in range(self.world.goals.len - 1, 0, -1)
+		g = self.world.goals[i]
+		if g.status == "done" and (g.kind == "putOn" or g.kind == "getRidOf") and refEquals(g.args[0], thing) then return g
+	end for
+	return null
+end function
+
+// Put a thing back where it was at an earlier time: on the same thing, at
+// the same spot if we can, or else anywhere on it.  Returns true if it
+// worked (or else notes the problem and returns false).
+Brain.putBack = function(thing, time, verb)
+	w = self.world
+	was = w.snapshotAt(time)[thing.id]
+	if not was.supporters then return true     // it was in the hand; leave it be
+	target = w.thing(was.supporters[0])
+	first = w.goals.len
+	problem = self.planner.achieve("putOn", [thing, target], {"at": [was.pos[0], was.pos[2]]})
+	if problem then
+		w.goals[first].status = "failed"
+		first = w.goals.len
+		problem = self.planner.achieve("putOn", [thing, target])
+	end if
+	w.goals[first].verb = verb
+	self.focus.event = w.goals[first]
+	if problem then
+		self.fail problem
+		return false
+	end if
+	return true
+end function
+
+// "Undo that": put back everything we moved for the last thing we were
+// asked to do, the last one moved first.  (So after "Put the red cube in
+// the box", which meant moving the green pyramid off it first, the red cube
+// goes back where it was, and then the green pyramid goes back on it.)
+Brain.undo = function
+	g = self.lastAsked
+	if g == null then return null
+	w = self.world
+	before = w.snapshotAt(g.start)
+	// What moved, in the order each was last set down.
+	moved = []
+	for e in w.history
+		if e.action != "ungrasp" or timeValue(e.time) < timeValue(g.start) then continue
+		if containsRef(moved, e.thing) then moved.remove moved.indexOf(e.thing)
+		moved.push e.thing
+	end for
+	if not moved then return "There's nothing to undo."
+	for i in range(moved.len - 1, 0, -1)
+		if not self.putBack(moved[i], g.start, "undo") then return null
+	end for
 	return "OK."
 end function
 
@@ -940,6 +1322,9 @@ Brain.choose = function(var)
 		// "A block" in a command means one we haven't already picked for
 		// something else in this sentence ("stack up the red cube and a
 		// block" won't pick the red cube again).
+		// "Everything", as something to move, means the things that can be
+		// moved: not the box or the table.
+		if self.moving.indexOf(var) != null then things = movableOnes(things)
 		fitting = things
 		things = self.notChosenYet(fitting)
 		want = things.len
@@ -947,15 +1332,25 @@ Brain.choose = function(var)
 		if d.det == "number" or d.det == "at-least" then want = d.n
 		if things.len == 0 or things.len < want then
 			if fitting.len > things.len and want == 1 then
-				return self.fail("I don't see another " + speech.descriptionPhrase(d, false) + ".")
+				return self.fail("I don't see another " + self.phraseFor(d, false) + ".")
 			end if
-			return self.fail("I don't see enough " + speech.descriptionPhrase(d, true) + ".")
+			if not fitting then return self.fail(self.noneSeen(d))
+			return self.fail("I don't see enough " + self.phraseFor(d, true) + ".")
 		end if
 		things = self.leastTrouble(things)[:want]
 	end if
 	if things == null then return null
 	self.chosen[var] = things
 	return things
+end function
+
+// Just the things that can be moved.
+movableOnes = function(things)
+	result = []
+	for t in things
+		if t.movable then result.push t
+	end for
+	return result
 end function
 
 // For "X and Y", what each part means; for "X or Y", the first one we can
@@ -1064,6 +1459,7 @@ end function
 eventGoals = {
   "pickUp": ["grasp"], "grasp": ["grasp"],
   "putOn": ["putOn", "getRidOf"], "putIn": ["putOn"], "putDown": ["putOn", "getRidOf"],
+  "putAt": ["putOn"],
   "move": ["putOn", "getRidOf", "grasp"],
   "drop": ["putOn"],
   "touch": ["grasp", "putOn"],
@@ -1087,6 +1483,10 @@ Brain.findGoal = function(var, noneMessage="I don't remember doing that.")
 	if e == null then return null
 	if e.kind != "event" then return self.fail("(" + var + " isn't an event.)")
 	if e.verb == "do" and not e.args then
+		// "What did you do last?": the last thing the user asked for.
+		for c in e.props
+			if c.pred == "last" then return self.lastAsked
+		end for
 		if self.focus.event == null then return self.fail("I don't know what you mean.")
 		return self.focus.event
 	end if
@@ -1095,6 +1495,15 @@ Brain.findGoal = function(var, noneMessage="I don't remember doing that.")
 	if not goals then return self.fail(noneMessage)
 	if self.focus.event and containsRef(goals, self.focus.event) then return self.focus.event
 	return goals[0]
+end function
+
+// The last thing the user asked us to do (that we did).
+Brain.lastAsked = function
+	for i in range(self.world.goals.len - 1, 0, -1)
+		g = self.world.goals[i]
+		if g.parent == null and g.status == "done" then return g
+	end for
+	return self.fail("I haven't done anything yet.")
 end function
 
 // Every goal an event description fits: the preferred kinds first (see
@@ -1107,6 +1516,7 @@ Brain.matchingGoals = function(var)
 	// What each argument refers to.
 	refs = []
 	for a in e.args
+		if not icl.isVar(a) then continue     // (the nextTo in "event PutAt x1, nextTo, x2")
 		ref = self.refer(a)
 		if ref == null then return null
 		refs.push ref.things
@@ -1184,20 +1594,36 @@ end function
 // and otherwise, the goal's i'th argument.
 Brain.goalArg = function(g, verb, i)
 	if g.kind == "stack" then return g.args
+	// "Why did you put the red cube next to the blue block?"
+	if verb == "putAt" and i == 1 then
+		if g.near and g.near.hasIndex("other") then return [g.near.other]
+		return []
+	end if
 	if g.kind == "getRidOf" and i == 1 then return [self.world.table]
 	if verb == "touch" and g.kind == "putOn" then i += 1
 	return g.args[i:i+1]
 end function
 
-// Check an event's time constraints: [before e2], [after e2], [while e2].
+// Check an event's time constraints: [before e2], [after e2], [while e2],
+// [for e2].
 Brain.goalTimesFit = function(g, props, others)
 	for i in props.indexes
 		c = props[i]
 		other = others[i]
 		if c.pred == "before" then
-			ok = timeValue(g.finish) <= timeValue(other.start)
+			// Before, or while getting ready for it: picking up the green
+			// pyramid to clear off the red cube came before putting the red
+			// cube in the box, though it was part of doing that.  (But
+			// picking up the red cube itself was part of putting it in the
+			// box, not before.)
+			ok = timeValue(g.finish) <= timeValue(other.start) or
+			  (self.isPartOf(g, other) and not self.sharesThings(g, other))
 		else if c.pred == "after" then
 			ok = timeValue(g.start) >= timeValue(other.finish)
+		else if c.pred == "for" then
+			// "What did you have to move to do that?"  Something done as part
+			// of it, to other things than what it was about.
+			ok = self.isPartOf(g, other) and not self.sharesThings(g, other)
 		else if c.pred == "while" then
 			// (Inclusive: picking up a block is touching it while you pick it up.)
 			ok = timeValue(g.start) >= timeValue(other.start) and
@@ -1209,6 +1635,51 @@ Brain.goalTimesFit = function(g, props, others)
 		if not ok then return false
 	end for
 	return true
+end function
+
+// Was goal g done as part of goal other (as a step, or a step of a step...)?
+Brain.isPartOf = function(g, other)
+	p = g.parent
+	while p
+		if refEquals(p, other) then return true
+		p = p.parent
+	end while
+	return false
+end function
+
+// Is any of goal g's things also one of other's?
+Brain.sharesThings = function(g, other)
+	for t in g.args
+		if containsRef(other.args, t) then return true
+	end for
+	return false
+end function
+
+// "How do you build a steeple?"  "By stacking up two green cubes and a
+// pyramid."  We can say how to build something we were taught, from the
+// words the user taught it with.
+Brain.answerMethod = function(var)
+	e = self.lookup(var)
+	if e == null then return null
+	if e.verb == "build" and e.args then
+		d = self.lookup(e.args[0])
+		word = d.head
+		if word == "one" then word = self.antecedentNoun(d)
+		if self.definitions.hasIndex(word) and self.definitions[word].hasIndex("parts") then
+			return "By stacking up " + self.definitions[word].parts + "."
+		end if
+		return "Sorry, I don't know how to build " + speech.withArticle(word) + "."
+	end if
+	return "I can only explain how to build things you've taught me about."
+end function
+
+// "What did you do last?"  "I put the red cube in the box."
+Brain.answerWhatDone = function(var)
+	g = self.findGoal(var)
+	if g == null then return null
+	self.focus.event = g
+	if g.kind != "stack" then self.focus.it = g.args[0]
+	return "I " + speech.goalPhrase(self.world, g, "ed") + "."
 end function
 
 Brain.answerAboutEvent = function(q)
@@ -1269,6 +1740,13 @@ Brain.hear = function(text)
 		n = choiceNumber(text)
 		if n and n <= q.choices.len then return self.actOn(q.understanding, q.choices[n-1])
 	end if
+	// Telling us which one, after "I don't understand which pyramid you mean"?
+	if self.pending then
+		p = self.pending
+		self.pending = null
+		reply = self.settle(p, text)
+		if reply then return reply
+	end if
 	r = meaning.understand(text, self.knownNames, self.definitions.indexes)
 	self.lastUnderstanding = r      // for showing what happened under the hood
 	if r.error then return r.error
@@ -1277,9 +1755,66 @@ Brain.hear = function(text)
 		self.question = pick.question
 		return pick.question.text
 	end if
+	if pick.sensible != true then
+		// Maybe nothing makes sense, because "it" meant something said
+		// earlier in this sentence?
+		reply = self.tryItReadings(r, pick)
+		if reply then return reply
+	end if
 	reply = self.actOn(r, pick.index)
 	if pick.note then reply = pick.note + " " + reply
 	return reply
+end function
+
+// "What did the box contain before you put the red cube in it?"  "It" is
+// usually what we were just talking about, but when that makes no sense,
+// it may be something earlier in the same sentence (here, the box).  If one
+// of those readings makes sense, we act on it, and say what we took "it" to
+// mean.  Returns the reply, or null if none makes sense (or if the reading
+// we picked made sense after all).
+Brain.tryItReadings = function(r, pick)
+	alt = meaning.itReadings(r)
+	if not alt.programs then return null
+	if pick.sensible == null and not self.check(r.programs[pick.index]).problem then return null
+	for i in alt.programs.indexes
+		if self.check(alt.programs[i]).problem then continue
+		reply = self.actOn(alt, i)
+		return "By ""it"", I assume you mean " + speech.echoPhrase(alt.itMeans[i]) + ". " + reply
+	end for
+	return null
+end function
+
+// After "I don't understand which green cube you mean.", the user may just
+// say which: "The one supporting a pyramid."  "The small one."  "Any one."
+// That's a noun phrase on its own, and it finishes what they asked before:
+//   Put the blue pyramid on the green cube.
+//   x2 = the cube [color green]
+// becomes
+//   x2 = the cube [color green] [supports x3]
+//   x3 = a pyramid
+// and we try again.  "Any one" (or "a green one") lets us choose.  Returns
+// the reply, or null if the text isn't a noun phrase (so it's something
+// new).
+Brain.settle = function(p, text)
+	r = parser.parseNounPhrase(text, self.knownNames, self.definitions.indexes)
+	if r.error then return null
+	prog = p.understanding.programs[p.index]
+	d = prog.lookup(p.var)
+	m = meaning.Meaning.make
+	m.prog = prog
+	newVar = m.describe(r.trees[0])
+	answer = prog.lookup(newVar)
+	if answer.kind != "description" then return null
+	// The answer adds to the description, rather than standing apart from
+	// it.  (What it mentions, like "a pyramid", stays in the program.)
+	prog.lines.remove prog.lines.indexOf(answer)
+	prog.vars.remove newVar
+	d.props += answer.props
+	if ["one", "thing"].indexOf(answer.head) == null and not icl.pronouns.hasIndex(answer.head) then
+		d.head = answer.head
+	end if
+	if answer.det == "a" or answer.det == "any" then d.det = "a"
+	return self.actOn(p.understanding, p.index)
 end function
 
 // Carry out one reading of what the user said, and reply.
@@ -1291,6 +1826,10 @@ Brain.actOn = function(r, index)
 	end for
 	reply = self.respond(r.programs[index])
 	self.phrases = null
+	// If we couldn't tell which thing was meant, the user may tell us.
+	if self.failed and self.unclear then
+		self.pending = {"understanding": r, "index": index, "var": self.unclear}
+	end if
 	note = self.itNote
 	if note then reply = note + " " + reply
 	return reply
@@ -1322,8 +1861,11 @@ end function
 // Which reading to act on: {index, note, question}, where note (if any)
 // says which reading we assumed, and question (if any) is a question to
 // ask the user instead (see senseQuestion).
+//
+// `sensible` says whether the reading picked makes sense: true, false, or
+// null if there was only one reading, so we didn't check.
 Brain.pickReading = function(r)
-	if r.programs.len == 1 then return {"index": 0, "note": null, "question": null}
+	if r.programs.len == 1 then return {"index": 0, "note": null, "question": null, "sensible": null}
 	checks = []
 	sensible = []
 	for i in r.programs.indexes
@@ -1332,16 +1874,16 @@ Brain.pickReading = function(r)
 	end for
 	// If none make sense, go with the most likely one, so the user hears
 	// what's wrong with it.
-	if not sensible then return {"index": 0, "note": null, "question": null}
+	if not sensible then return {"index": 0, "note": null, "question": null, "sensible": false}
 	best = sensible[0]
 	for i in sensible[1:]
 		if checks[i].summary != checks[best].summary then
 			q = self.senseQuestion(r, sensible, checks)
-			if q then return {"index": null, "note": null, "question": q}
-			return {"index": best, "note": self.assumption(r, best, i), "question": null}
+			if q then return {"index": null, "note": null, "question": q, "sensible": true}
+			return {"index": best, "note": self.assumption(r, best, i), "question": null, "sensible": true}
 		end if
 	end for
-	return {"index": best, "note": null, "question": null}
+	return {"index": best, "note": null, "question": null, "sensible": true}
 end function
 
 // Some words have senses the robot shouldn't guess between ("on top of":
@@ -1483,7 +2025,13 @@ Brain.checkStatement = function(statement, referents)
 			words.push g.kind + "@" + timeValue(g.start)
 			continue
 		end if
-		if statement.kind == "command" and statement.verb == "build" then
+		if statement.kind == "command" and (statement.verb == "stack" or statement.verb == "stackUp") and
+		  vars.len == 1 then
+			// "Stack the green pyramid on top of the red cube" doesn't mean
+			// a stack of one thing.
+			things = self.choose(var)
+			if things != null and things.len < 2 then self.fail "I need at least two things to make a stack."
+		else if statement.kind == "command" and statement.verb == "build" then
 			things = self.buildParts(var)
 		else if statement.kind == "command" then
 			things = self.choose(var)
@@ -1498,6 +2046,13 @@ Brain.checkStatement = function(statement, referents)
 		// rest of the sentence.
 		if i == 0 then self.noteFocus var, things
 	end for
+	// Two readings of a yes/no question may be about the same things and
+	// still mean different things: "Is the green pyramid on top of the blue
+	// block?" (directly on it, or anywhere above it).  So the answer is part
+	// of what it means.
+	if statement.kind == "ask" and statement.q == "yes-no" and not self.problem then
+		words.push "answer: " + self.answerYesNo(statement.target, statement.claim)
+	end if
 	return words.join(" ")
 end function
 
@@ -1621,6 +2176,13 @@ Brain.define = function(statement)
 	end if
 	if relations.nouns.indexOf(word) != null then return self.fail("I already know the word """ + word + """.")
 	self.definitions[word] = {"prog": self.prog, "var": statement.args[1]}
+	// Remember what it's made of, in the user's words, for "How do you
+	// build a steeple?"
+	for c in d.props
+		if c.pred == "contains" and c.args.len == 1 then
+			self.definitions[word].parts = self.wordsFor(c.args[0])
+		end if
+	end for
 	return "I understand."
 end function
 

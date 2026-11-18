@@ -130,7 +130,7 @@ expect b, "x1 = the pyramid [littlest]; Ask color x1", "Green."
 // to reach; here, the red one), and it becomes "it".
 expect b, "x1 = a pyramid; Ask color x1", "Red."
 expect b, "x1 = it; x2 = a cube; Ask yes-no x1 [on x2]", "Yes."
-expect b, "x1 = a pyramid; Ask shape x1", "Pyramid."
+expect b, "x1 = a pyramid; Ask shape x1", "A pyramid."
 expect b, "x1 = a pyramid [color purple]; Ask color x1", "I don't see any purple pyramids."
 
 // "Is there a big red block?"
@@ -146,7 +146,7 @@ expect b, "x1 = which thing [supports x2]; x2 = the pyramid [color red]; Ask whi
   "The large green cube."
 // "What color is it?"  "It" is now the large green cube.
 expect b, "x1 = it; Ask color x1", "Green."
-expect b, "x1 = it; Ask shape x1", "Cube."
+expect b, "x1 = it; Ask shape x1", "A cube."
 
 // "How many blocks are not in the box?"
 expect b, "x1 = how-many blocks [not [in x2]]; x2 = the box; Ask count x1", "Five of them."
@@ -163,7 +163,7 @@ expect b, "x1 = how-many pyramids [on x2]; x2 = a cube; Ask count x1", "Two of t
 // "The cube" is ambiguous (both cubes have a pyramid on them)...
 expect brain.Brain.make(w), "x1 = how-many pyramids [on x2]; x2 = the cube; Ask count x1", "I don't understand which cube you mean."
 // ...unless we were just talking about one of them: "it" is the red cube now.
-expect b, "x1 = how-many pyramids [on x2]; x2 = the cube; Ask count x1", "One of them."
+expect b, "x1 = how-many pyramids [on x2]; x2 = the cube; Ask count x1", "Just one."
 expect b, "x1 = how-many things [on x2]; x2 = every block; Ask count x1", "None."
 // "Red or green"
 expect b, "x1 = how-many pyramids [color red|green]; Ask count x1", "Two of them."
@@ -307,7 +307,7 @@ b = brain.Brain.make(w)
 hear b, "Which green cube did you move?", "None."
 hear b, "Pick up the large red block.", "OK."
 hear b, "Which green cube did you move?", "The small green one."
-hear b, "Put the large red block in the box.", "There's no room for the large red block in the box."
+hear b, "Put the large red block in the box.", "There's no room in the box for the large red block."
 hear b, "What did you put in the box?", "Nothing."
 hear b, "What did the large red block support before you picked it up?", "The small green cube."
 hear b, "What did the large red block support after you picked it up?", "Nothing."
@@ -368,7 +368,9 @@ b = brain.Brain.make(w)
 hear b, "Can a pyramid be supported by a block?", "Yes."
 hear b, "Can a block be on a pyramid?", "No. Nothing will stay on top of a pyramid."
 hear b, "Can a pyramid support a block?", "No. Nothing will stay on top of a pyramid."
-hear b, "Can a block be in the box?", "I don't know."
+// (The robot tries putting one there, and puts everything back.)
+hear b, "Can a block be in the box?", "Yes."
+hear b, "What is in the box?", "The blue pyramid."
 hear b, "Can the box pick up a pyramid?", "No."
 
 // Claims.  A number means just that many.  "Then" is the time we last
@@ -433,10 +435,10 @@ w = newWorld
 b = brain.Brain.make(w)
 question = "I'm not sure what you mean by ""on top of"" in the phrase ""on top of the large red block"".  Do you mean:" +
   nl + "1 - directly on the surface" + nl + "2 - anywhere on top of?"
-hear b, "How many things are on top of the large red block?", "One of them."
+hear b, "How many things are on top of the large red block?", "Just one."
 hear b, "Put the green pyramid on the small green cube.", "OK."
 hear b, "How many things are on top of the large red block?", question
-hear b, "1", "One of them."
+hear b, "1", "Just one."
 hear b, "How many things are on top of the large red block?", question
 hear b, "2.", "Two of them."
 hear b, "How many things are on top of the large red block?", question

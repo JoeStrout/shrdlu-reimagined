@@ -158,6 +158,46 @@ These are in Winograd's dialogue but come after the first round:
 - **Questions about the past with tense:** "Had you touched any pyramid before you put the green one on the little cube?", "What did the red cube support before you started to clean it off?"
 - **Social replies:** "Thank you." (This one is easy and may come early, just for fun.)
 
+### 3.5 Breadth: other ways of saying things
+
+After the dialogue, the grammar grew to cover the many other ways people say the same things (`tests/testCoverage.ms`). Most of this is data: more words and more frames. The rules added were:
+
+- **Commands.**
+  - More verbs and frames: take, get, hold, grab, remove, stick, pile up, bring, make, let go (of), release, clear (without "off"), clean up.
+  - Frames that say where the thing is now ("take the green cube *off* the red block", "*out of* the box", "remove it *from* the box"). These add a constraint to the thing, rather than another argument.
+  - "Put X under Y" swaps the two, to mean putting Y on X.
+  - "Put X next to / to the left of / behind Y" gives `PutAt x1, nextTo, x2`. Next to the table's sides ("at the front of the table"), it means that third of the table.
+  - "Put it back" and "Undo that".
+  - "Count the blocks" is a question.
+  - An unknown word may be a new name where a frame wants one ("Call it Bert").
+- **Before a command.** A word like "now", "first" or "then", the politeness from before, and a request like "I want you to", "try to" or "go".
+- **Joining.**
+  - Commands joined by just "then".
+  - Lists with commas ("the blue block, the red cube and the green pyramid"). The tokenizer drops commas but marks the next word as coming after one, so only lists need to know.
+- **Noun phrases.**
+  - "all the X"
+  - "something green"
+  - "the second tallest block"
+  - "the top of X" (which just means X)
+  - "-ing" clauses without "which is" ("the one supporting a pyramid")
+  - "colored red or blue"
+- **After "is".**
+  - Predicates joined by "and" or "but" ("red and on the table", "green but not on the table"): `[and ...]`.
+  - "the biggest"
+  - A noun phrase ("Is it a block?", "Is it the tallest block?"): `[oneOf x2]`.
+- **Questions.**
+  - "What is it?" (`Ask identify`)
+  - "Where is X?", "Where did X go?", "Show me X", "Tell me where X is" (`Ask where`)
+  - "What are you holding?", "Are you holding X?", "Is your hand empty?"
+  - "Do/can you see X?" (whether there is one)
+  - "What is X's color?", "What is the color of X?", "How big is X?"
+  - "Which is taller, A or B?": `x3 = which thing [oneOf group] [tallest]`
+  - "What did you do last?" (`Ask what`, of `event Do [last]`)
+  - "What did you have to move to do that?": `[for e2]`
+  - "How do you build a steeple?" (`Ask method`)
+  - "How many blocks can you pick up?" (`[could e1]`)
+- **Social.** Greetings, thanks, praise, "help", "who are you?" and so on, each a whole sentence (`Chat hello`).
+
 ## Part 4: Ambiguity
 
 Winograd's dialogue includes "Put the blue pyramid on the block in the box." It has two parses:
@@ -171,7 +211,9 @@ The grammar returns both, and the meaning pass turns each into ICL. Then the bra
 - **A "the" inside a description is settled by the description around it.** In "the green pyramid on the block" there are several blocks, but only one that the green pyramid is on, so that's the one meant. The brain lets such an inner "the" have several candidates while it tests the outer description, and then requires the survivors to be related to just one of them. Without this, the second reading of the sentence above would always fail with "I don't understand which block you mean."
 - The parser takes the **first parse (in grammar order) that checks clean**. If none do, it reports the problem from the first parse, since that's the most likely reading.
 - When more than one parse checks clean and they mean different things, the robot takes the first, and **says which reading it chose**, Winograd style, before its reply. It names the noun phrase that differs between the readings, and what it took that phrase to mean: `By "the block in the box", I assume you mean the large red block.` (The name comes from `speech.ms`, as in the robot's other replies.) The under-the-hood panel will list the other readings.
-- **Some words the robot asks about instead.** "On top of" has two senses in the lexicon, each with a description: directly on (`[on]`), and anywhere above (`[above]`). When readings that use different senses would mean different things, the robot asks, as Winograd's did: `I'm not sure what you mean by "on top of" in the phrase "on top of green cubes".  Do you mean: 1 - directly on the surface 2 - anywhere on top of?` (one choice per line). If the next thing the user types is just a number, it picks that reading and the robot carries it out; anything else drops the question. In a command ("put it on top of the red block"), only the "on" sense fits the verb's shape, so there's nothing to ask. (Not yet: a yes/no question like "Is the pyramid on top of the red block?" isn't asked about even when the two senses give different answers, because readings are compared by what they refer to, not by their answers.)
+- **"It" in the same sentence.** "It" means what we were talking about before, unless that makes no sense. Then the brain tries the readings where "it" is an earlier noun phrase in the same sentence, nearest first. In "What did the box contain before you put the red cube in it?", "it" is the box, and the robot says so (`meaning.itReadings`).
+- **Saying which one.** After "I don't understand which green cube you mean.", a noun phrase on its own ("The one supporting a pyramid.", "Any one.") is added to that description, and the robot tries again (`Brain.settle`).
+- **Some words the robot asks about instead.** "On top of" has two senses in the lexicon, each with a description: directly on (`[on]`), and anywhere above (`[above]`). When readings that use different senses would mean different things, the robot asks, as Winograd's did: `I'm not sure what you mean by "on top of" in the phrase "on top of green cubes".  Do you mean: 1 - directly on the surface 2 - anywhere on top of?` (one choice per line). If the next thing the user types is just a number, it picks that reading and the robot carries it out; anything else drops the question. In a command ("put it on top of the red block"), only the "on" sense fits the verb's shape, so there's nothing to ask. A yes/no question ("Is the green pyramid on top of the blue block?") is asked about when the two senses give different answers, since a yes/no question's answer is part of what its reading means.
 
 ## Part 5: When it doesn't understand
 

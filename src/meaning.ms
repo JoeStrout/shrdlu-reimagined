@@ -24,6 +24,8 @@ Meaning.make = function
 	m.phrases = []     // {words, var} for each noun phrase, so the robot can
 	                   // say "By 'the block in the box', I assume you mean..."
 	m.describing = []  // the descriptions being built, outermost first
+	m.itTarget = null  // to take "it" as an earlier noun phrase: its index in phrases
+	m.itOptions = null // the earlier noun phrases "it" could have meant (see itReadings)
 	return m
 end function
 
@@ -33,6 +35,15 @@ Meaning.describe = function(np)
 	if np.hasIndex("join") then return self.describeGroup(np)
 	bound = self.boundPronoun(np)
 	if bound then return bound
+	if isIt(np) then
+		if self.itTarget != null then
+			// This reading takes "it" to be an earlier noun phrase.
+			var = self.phrases[self.itTarget].var
+			self.itTarget = null
+			return var
+		end if
+		if self.itOptions == null then self.itOptions = self.earlierPhrases
+	end if
 	d = self.descriptionStart(np)
 	var = self.prog.add(d)     // added first, so it gets the lowest number
 	self.phrases.push {"words": parser.wordsOf(np), "var": var}
@@ -43,6 +54,26 @@ Meaning.describe = function(np)
 	end for
 	self.describing.pop
 	return var
+end function
+
+// Is this noun phrase just "it"?
+isIt = function(np)
+	return np.parts.len == 1 and np.parts[0].cat == "pronoun" and np.parts[0].entry.head == "it"
+end function
+
+// The noun phrases so far that "it" could mean, as indexes into phrases,
+// nearest first: ones about one particular thing ("the box"), and not the
+// ones we're inside ("the box which supports it" can't be "it").
+Meaning.earlierPhrases = function
+	result = []
+	for i in range(self.phrases.len - 1, 0, -1)
+		var = self.phrases[i].var
+		if self.describing.indexOf(var) != null then continue
+		d = self.prog.lookup(var)
+		if d.kind != "description" or d.det != "the" or d.plural then continue
+		result.push i
+	end for
+	return result
 end function
 
 // "It" can mean the thing a description is about, when it's in a clause
@@ -117,8 +148,29 @@ Meaning.constraintFor = function(tree)
 	if tree.cat == "PP" or tree.cat == "CMP" then
 		// "on the table" -> [on x2];  "taller than it" -> [taller x2]
 		relation = tree.parts[0].entry.pred
-		return icl.constraint(relation, [self.describe(tree.parts[-1])])
+		var = self.describe(tree.parts[-1])
+		// "Taller than any pyramid" means taller than every one of them.
+		d = self.prog.lookup(var)
+		if tree.cat == "CMP" and d.kind == "description" and d.det == "any" then d.det = "every"
+		return icl.constraint(relation, [var])
 	end if
+	if tree.cat == "ADJP" then return self.adjectiveConstraint(tree.parts[-1])     // "the biggest"
+	if tree.cat == "ADJ" then
+		// "second tallest" -> [tallest 2]
+		return icl.constraint(tree.parts[1].entry.pred, [tree.parts[0].entry.n])
+	end if
+	if tree.cat == "PREDS" then return self.joinedConstraint(tree)
+	if tree.cat == "COLORED" then
+		// "colored red or blue" -> [color red|blue]
+		colors = []
+		for p in parser.partsOfCat(tree, "adj")
+			colors.push self.adjectiveConstraint(p)
+		end for
+		if colors.len == 1 then return colors[0]
+		return icl.constraint("or", colors)
+	end if
+	// "(Is the red cube) the tallest block?" -> [oneOf x2]
+	if tree.cat == "NP" then return icl.constraint("oneOf", [self.describe(tree)])
 	if tree.cat == "VP" then return self.verbConstraint(tree)
 	if tree.cat == "REL" or tree.cat == "WH" then return self.clauseConstraint(tree)
 	if tree.cat == "CMD" then
@@ -126,6 +178,26 @@ Meaning.constraintFor = function(tree)
 		return icl.constraint("commanded", [icl.capitalize(tree.frame.icl)])
 	end if
 	return null
+end function
+
+// Predicates joined by "and" or "but": "red and on the table", "green but
+// not on the table" -> [and [color red] [on x2]].  ("But" means the same
+// as "and" here; it only says the second part is a surprise.)
+Meaning.joinedConstraint = function(tree)
+	parts = []
+	negate = false
+	for p in tree.parts
+		if p.cat == "and" or p.cat == "but" then continue
+		if p.cat == "not" then
+			negate = true
+			continue
+		end if
+		c = self.constraintFor(p)
+		if negate then c = icl.constraint("not", [c])
+		parts.push c
+		negate = false
+	end for
+	return icl.constraint("and", parts)
 end function
 
 // [color red], [size big], or just [littlest].
@@ -138,6 +210,11 @@ end function
 // "supports a pyramid" -> [supports x2];  "sitting on the table" -> [on x2]
 Meaning.verbConstraint = function(tree)
 	verb = tree.parts[0].entry
+	// "have anything on it" -> [supports x2];  "in it" -> [contains x2]
+	if tree.parts[0].cat == "have" then
+		if tree.parts[2].entry.pred == "on" then relation = "supports" else relation = "contains"
+		return icl.constraint(relation, [self.describe(tree.parts[1])])
+	end if
 	if verb.hasIndex("rel") then
 		return icl.constraint(verb.rel, [self.describe(tree.parts[1])])
 	end if
@@ -149,7 +226,9 @@ end function
 // means [held], and "I own" means [owned].
 Meaning.clauseConstraint = function(tree)
 	last = tree.parts[-1]
-	if last.cat == "verb" and last.entry.hasIndex("held") then
+	if (last.cat == "verb" and last.entry.hasIndex("held")) or (last.cat == "have" and tree.parts[0].cat == "you") or
+	  (last.cat == "adj" and last.entry.pred == "held") then
+		// "you are holding", "do you have", "do you have ... in your hand"
 		c = icl.constraint("held")
 	else if last.cat == "verb" and last.entry.hasIndex("own") then
 		c = icl.constraint("owned")     // "which I own"
@@ -185,6 +264,11 @@ end function
 // Sentences
 //----------------------------------------------------------------------
 
+// The superlative that goes with each comparative: "Which is taller, A or
+// B?" asks which is the tallest of them.
+superlativeOf = {"taller": "tallest", "shorter": "shortest", "wider": "widest",
+  "narrower": "narrowest", "bigger": "biggest", "smaller": "smallest"}
+
 // Add the ICL for a whole sentence to the program.
 Meaning.sentence = function(s)
 	if s.kind == "command" then
@@ -217,9 +301,15 @@ Meaning.sentence = function(s)
 		wh = s.parts[1]
 		times = parser.partsOfCat(s, "TIME")
 		cmds = parser.partsOfCat(wh, "CMD")
-		if cmds then
+		if cmds and parser.partsOfCat(wh, "modal") then
+			// "How many blocks can you pick up?" -> [could e1], with
+			//   e1 = event PickUp x1
+			e = icl.event(cmds[0].frame.icl, [var] + self.arguments(cmds[0]))
+			c = icl.constraint("could", [self.prog.add(e)])
+		else if cmds then
 			// "How many objects did you touch (while you were doing it)?"
-			c = self.didConstraint(var, cmds[0], times)
+			// "What did you have to move to do that?"
+			c = self.didConstraint(var, cmds[0], times, parser.partsOfCat(wh, "PURPOSE"))
 		else
 			c = self.constraintFor(wh)
 			// "What did the red cube support before you started to clean
@@ -233,8 +323,25 @@ Meaning.sentence = function(s)
 		if c then self.prog.lookup(var).props.push c
 		self.prog.add icl.ask(parser.whKind(np), var)
 	else if s.kind == "attribute" then
-		attr = parser.partsOfCat(s, "attribute")[0].entry.attr
-		self.prog.add icl.ask(attr, self.describe(s.parts[-1]))
+		words = parser.partsOfCat(s, "attribute") + parser.partsOfCat(s, "howAttr")
+		self.prog.add icl.ask(words[0].entry.attr, self.describe(s.parts[-1]))
+	else if s.kind == "identify" then
+		// "What is it?" -> Ask identify x1
+		self.prog.add icl.ask("identify", self.describe(s.parts[-1]))
+	else if s.kind == "where" then
+		// "Where is the red cube?" -> Ask where x1
+		self.prog.add icl.ask("where", self.describe(parser.partsOfCat(s, "NP")[0]))
+	else if s.kind == "choice" then
+		// "Which is taller, the red cube or the blue block?" ->
+		//   x1 = the cube [color red];  x2 = the block [color blue]
+		//   x3 = x1 or x2
+		//   x4 = which thing [oneOf x3] [tallest]
+		//   Ask which x4
+		group = self.describe(s.parts[-1])
+		comparative = s.parts[2].entry.pred
+		d = icl.description("which", "thing", false,
+		  [icl.constraint("oneOf", [group]), icl.constraint(superlativeOf[comparative])])
+		self.prog.add icl.ask("which", self.prog.add(d))
 	else if s.kind == "yes-no" then
 		var = self.describe(s.parts[1])
 		self.prog.add icl.ask("yes-no", var, self.constraintFor(s.parts[2]))
@@ -252,6 +359,20 @@ Meaning.sentence = function(s)
 	else if s.kind == "event" then
 		q = s.parts[0].entry.q
 		self.prog.add icl.ask(q, self.event(s))
+	else if s.kind == "whatDone" then
+		// "What did you do last?" -> e1 = event Do [last]; Ask what e1
+		// ("What did you do?" and "What have you just done?" mean the same.)
+		e = icl.event("do", [], [icl.constraint("last")])
+		self.prog.add icl.ask("what", self.prog.add(e))
+	else if s.kind == "hand" then
+		// "Is your hand empty?" -> x1 = no thing; Ask yes-no x1 [held]
+		// "Is your hand full?"  -> x1 = a thing;  Ask yes-no x1 [held]
+		if s.parts[-1].entry.pred == "empty" then det = "no" else det = "a"
+		self.prog.add icl.ask("yes-no", self.prog.add(icl.description(det, "thing")), icl.constraint("held"))
+	else if s.kind == "method" then
+		// "How do you build a steeple?" -> e1 = event Build x1; Ask method e1
+		cmd = parser.partsOfCat(s, "CMD")[0]
+		self.prog.add icl.ask("method", self.prog.add(icl.event(cmd.frame.icl, self.arguments(cmd))))
 	else if s.kind == "did" then
 		// "Did you pick it up?" asks whether there was such an event.
 		self.prog.add icl.ask("exists", self.event(s))
@@ -259,8 +380,9 @@ Meaning.sentence = function(s)
 		for part in parser.partsOfCat(s, "OWN")
 			self.prog.add self.ownership(part)
 		end for
-	else if s.kind == "thanks" then
-		self.prog.add icl.command("thank")
+	else if s.kind == "chat" then
+		// "Thank you." -> Chat thanks
+		self.prog.add icl.command("chat", [s.parts[0].entry.reply])
 	end if
 end function
 
@@ -273,19 +395,38 @@ Meaning.ownership = function(own)
 end function
 
 // The ICL command for a CMD node: its frame's verb, with a variable for
-// each noun phrase.
+// each noun phrase.  ("Count the blocks" is really a question.)
 Meaning.command = function(cmd)
+	if cmd.frame.icl == "count" then return icl.ask("count", self.arguments(cmd)[0])
 	return icl.command(cmd.frame.icl, self.arguments(cmd))
 end function
 
 // A command's arguments: a variable for each noun phrase, and a name as
 // itself ("call it 'superblock'" -> Name x1, superblock).
+//
+// Some frames say where the thing is now ("take the green cube off the red
+// block"): then the second noun phrase isn't an argument, but tells which
+// thing the first one means:
+//   x1 = the cube [color green] [on x2]
+//   x2 = the block [color red]
+//   GetRidOf x1
 Meaning.arguments = function(cmd)
 	args = []
 	for part in cmd.parts
 		if part.cat == "NP" then args.push self.describe(part)
 		if part.cat == "name" then args.push part.word
 	end for
+	// "Put the red cube next to the blue block" -> PutAt x1, nextTo, x2
+	if cmd.frame.hasIndex("relation") and args.len == 2 then args = [args[0], cmd.frame.relation, args[1]]
+	// "Put the red cube under the green pyramid" -> PutOn x2, x1
+	if cmd.frame.hasIndex("swap") and args.len == 2 then args = [args[1], args[0]]
+	if cmd.frame.hasIndex("from") and args.len == 2 then
+		d = self.prog.lookup(args[0])
+		if d.kind == "description" then
+			d.props.push icl.constraint(cmd.frame.from, [args[1]])
+			args = args[:1]
+		end if
+	end if
 	return args
 end function
 
@@ -326,10 +467,17 @@ end function
 //   e1 = event Touch x1 [while e2]
 // where x1 is the thing being described: it's a thing that, put in the
 // command's missing place, makes e1 something the robot did.
-Meaning.didConstraint = function(var, cmd, times)
+//
+// What it was done for ("to do that") is [for e2]: a step of doing e2.
+Meaning.didConstraint = function(var, cmd, times, purposes=null)
 	e = icl.event(cmd.frame.icl, [var] + self.arguments(cmd))
 	eVar = self.prog.add(e)
 	self.addTimes e, times
+	if purposes then
+		for p in purposes
+			e.props.push icl.constraint("for", [self.timeEvent(p)])
+		end for
+	end if
 	return icl.constraint("did", [eVar])
 end function
 
@@ -347,6 +495,31 @@ understand = function(text, names=null, nouns=null)
 		phrases.push m.phrases
 	end for
 	return {"programs": programs, "trees": r.trees, "phrases": phrases, "error": r.error}
+end function
+
+// Other readings of a sentence, where the first "it" means a noun phrase
+// earlier in the same sentence, rather than what we were talking about
+// before: "What did the box contain before you put the red cube in it?"
+// The brain tries these when no ordinary reading makes sense.  Returns an
+// understanding like the one from understand, with each reading's
+// "itMeans" (the words "it" was taken to mean).
+itReadings = function(r)
+	result = {"programs": [], "trees": [], "phrases": [], "itMeans": [], "error": null}
+	for tree in r.trees
+		m = Meaning.make
+		m.sentence tree
+		if not m.itOptions then continue
+		for option in m.itOptions
+			m2 = Meaning.make
+			m2.itTarget = option
+			m2.sentence tree
+			result.programs.push m2.prog
+			result.trees.push tree
+			result.phrases.push m2.phrases
+			result.itMeans.push m2.phrases[option].words
+		end for
+	end for
+	return result
 end function
 
 // The ICL for a noun phrase by itself (for testing): a Program of

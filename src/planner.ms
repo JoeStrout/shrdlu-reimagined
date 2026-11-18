@@ -48,6 +48,8 @@ Goal.status = ""      // "active", "done", or "failed"
 Goal.start = null     // [turn, step] when work on it began
 Goal.finish = null    // [turn, step] when it finished
 Goal.verb = null      // for a goal the user asked for, the verb they used ("drop")
+Goal.near = null      // for a putOn: where on the target, as {rel, other} ("next to
+                      // the blue block") or {at: [x, z]} (back where it was)
 
 // The goal at the top of this one's chain: the thing the user asked for.
 Goal.root = function
@@ -76,8 +78,9 @@ Planner.now = function
 end function
 
 // Work on a goal: record it, run its procedure, and note how it went.
-// Returns null on success, or the reason it failed.
-Planner.achieve = function(kind, args)
+// Returns null on success, or the reason it failed.  `near` is for a putOn
+// that says where on the target (see Goal.near).
+Planner.achieve = function(kind, args, near=null)
 	w = self.world
 	g = new Goal
 	g.id = "g" + (w.goals.len + 1)
@@ -87,6 +90,7 @@ Planner.achieve = function(kind, args)
 	g.children = []
 	g.turn = w.turn
 	g.status = "active"
+	g.near = near
 	g.start = self.now
 	if g.parent then g.parent.children.push g
 	w.goals.push g
@@ -95,7 +99,7 @@ Planner.achieve = function(kind, args)
 	if kind == "grasp" then
 		problem = self.grasp(args[0])
 	else if kind == "putOn" then
-		problem = self.putOn(args[0], args[1])
+		problem = self.putOn(args[0], args[1], near)
 	else if kind == "clearOff" then
 		problem = self.clearOff(args[0])
 	else if kind == "getRidOf" then
@@ -143,13 +147,16 @@ Planner.grasp = function(thing)
 	return w.grasp(thing)
 end function
 
-// Put one thing on (or in) another.
-Planner.putOn = function(thing, target)
+// Put one thing on (or in) another, perhaps at a particular place on it
+// (see Goal.near).
+Planner.putOn = function(thing, target, near=null)
 	if refEquals(thing, target) then return "I can't put something on itself."
 	if target.shape == "pyramid" then return "I can't balance anything on a pyramid."
 	if not thing.movable then return "I can't move " + self.name(thing) + "."
-	if self.restsOnlyOn(thing, target) then return null   // already there
-	return self.moveOnto(thing, target)
+	if near and near.hasIndex("other") and refEquals(near.other, thing) then return "I can't put something next to itself."
+	// Already there?
+	if self.restsOnlyOn(thing, target) and (near == null or self.isNear(thing, near)) then return null
+	return self.moveOnto(thing, target, near)
 end function
 
 // Get everything off the top of something.
@@ -206,17 +213,17 @@ end function
 // a free spot on the target, and let go.  (Not a goal of its own; it's how
 // those two goals are carried out.)
 //----------------------------------------------------------------------
-Planner.moveOnto = function(thing, target)
+Planner.moveOnto = function(thing, target, near=null)
 	w = self.world
-	spot = self.findSpace(thing, target)
+	spot = self.findSpace(thing, target, near)
 	// No room on top of something?  Clear it off.  (But not the table, and
 	// not the box: emptying the box to put something into it would be silly.)
 	if spot == null and target.shape != "table" and target.shape != "box" and not w.isClear(target) then
 		problem = self.achieve("clearOff", [target])
 		if problem then return problem
-		spot = self.findSpace(thing, target)
+		spot = self.findSpace(thing, target, near)
 	end if
-	if spot == null then return self.noRoom(thing, target)
+	if spot == null then return self.noRoom(thing, target, near)
 	// Clear the thing off here, rather than leaving it to grasp, so that the
 	// record says we cleared it off in order to move it.
 	if not w.isClear(thing) then
@@ -228,14 +235,36 @@ Planner.moveOnto = function(thing, target)
 		if problem then return problem
 	end if
 	// Clearing things off may have changed what's free, so look again.
-	spot = self.findSpace(thing, target)
-	if spot == null then return self.noRoom(thing, target)
+	spot = self.findSpace(thing, target, near)
+	if spot == null then return self.noRoom(thing, target, near)
 	w.moveTo spot[0], spot[1]
 	return w.ungrasp
 end function
 
-Planner.noRoom = function(thing, target)
-	return "There's no room for " + self.name(thing) + speech.placePhrase(self.world, target) + "."
+Planner.noRoom = function(thing, target, near=null)
+	// (The place comes first: "There's no room for the green cube which is
+	// on the red block in the box" would be hard to follow.)
+	place = speech.placePhrase(self.world, target)
+	if near and near.hasIndex("rel") then place = " " + speech.relationPhrase(self.world, near.rel, near.other)
+	return "There's no room" + place + " for " + self.name(thing) + "."
+end function
+
+// Is the thing where `near` says (see Goal.near)?
+Planner.isNear = function(thing, near)
+	if near.hasIndex("at") then
+		return abs(thing.x - near.at[0]) < geometry.epsilon and abs(thing.z - near.at[1]) < geometry.epsilon
+	end if
+	return relations.binary[near.rel](self.world, thing, near.other)
+end function
+
+// Would the thing be where `near` says, if it rested at this placement?
+// (We move it there for a moment to see, and then put it back.)
+Planner.wouldBeNear = function(thing, placement, near)
+	saved = thing.pos
+	thing.pos = [placement.x, placement.y, placement.z]
+	result = self.isNear(thing, near)
+	thing.pos = saved
+	return result
 end function
 
 //----------------------------------------------------------------------
@@ -247,27 +276,41 @@ end function
 // don't end up crammed against each other.
 //----------------------------------------------------------------------
 
-Planner.findSpace = function(thing, target)
+//
+// With `near` (see Goal.near), only spots that put the thing there will do,
+// and we look near the other thing first.
+Planner.findSpace = function(thing, target, near=null)
 	w = self.world
 	b = relations.bounds(target)
+	// Back to just where it was?
+	if near and near.hasIndex("at") then
+		p = w.placementFor(thing, near.at[0], near.at[1])
+		if p.ok and p.supporters.len == 1 and refEquals(p.supporters[0], target) then return near.at
+		return null
+	end if
 	if target.shape == "table" then
 		// Somewhere near where the thing is now, in steps of half a unit.
-		near = [thing.x, thing.z]
+		center = [thing.x, thing.z]
 		step = 0.5
 	else if target.shape == "box" then
 		// Into the box from the side nearest the thing, which packs things
 		// toward the walls and leaves room for more.
-		near = [thing.x, thing.z]
+		center = [thing.x, thing.z]
 		step = geometry.gridSize
 	else
-		near = [target.x, target.z]
+		center = [target.x, target.z]
 		step = geometry.gridSize
+	end if
+	// Next to something (or to its left...): look near it first.
+	if near and near.other.shape != "table" then
+		center = [near.other.x, near.other.z]
+		step = 0.5
 	end if
 	spots = []
 	for x in range(b.minX, b.maxX, step)
 		for z in range(b.minZ, b.maxZ, step)
-			dx = x - near[0]
-			dz = z - near[1]
+			dx = x - center[0]
+			dz = z - center[1]
 			spots.push {"x": x, "z": z, "dist": dx*dx + dz*dz}
 		end for
 	end for
@@ -276,6 +319,7 @@ Planner.findSpace = function(thing, target)
 	for s in spots
 		p = w.placementFor(thing, s.x, s.z)
 		if not p.ok or p.supporters.len != 1 or not refEquals(p.supporters[0], target) then continue
+		if near and not self.wouldBeNear(thing, p, near) then continue
 		if self.elbowRoom(thing, s.x, s.z, target) >= 0.5 then return [s.x, s.z]
 		if fallback == null then fallback = [s.x, s.z]
 	end for

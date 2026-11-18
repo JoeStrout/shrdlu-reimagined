@@ -29,7 +29,7 @@
 //           It remembers which of the verb's frames it matched.
 //     S     a whole sentence.  Its "kind" says what sort: "command",
 //           "exists", "wh", "attribute", "yes-no", "event" (why, how,
-//           when), or "thanks".
+//           when), or "chat".
 //     WH    the part of a wh-question after the wh-word: "are not in the
 //           box", "does the box contain", "is the pyramid supported by"
 
@@ -49,14 +49,18 @@ isLetter = function(c)
 	return (c >= "a" and c <= "z") or (c >= "0" and c <= "9") or c == "-"
 end function
 
-// Split text into words: [text, quoted] pairs.  Lowercases everything,
-// drops punctuation except "?", and notes which words were in quotes.
+// Split text into words: [text, quoted, afterComma] triples.  Lowercases
+// everything, drops punctuation except "?", and notes which words were in
+// quotes.  A comma isn't kept as a word, but the word after it remembers
+// that it came after one; only lists ("the blue block, the red cube and
+// the box") need to know.
 splitWords = function(text)
 	s = text.lower
 	s = s.replace("“", """").replace("”", """").replace("‘", "'").replace("’", "'")
 	result = []
 	word = ""
 	quoting = false
+	comma = false
 	for i in s.indexes
 		c = s[i]
 		if i + 1 < s.len then nextChar = s[i+1] else nextChar = ""
@@ -70,23 +74,33 @@ splitWords = function(text)
 			word += c
 			continue
 		end if
-		if word != "" then result.push [word, quoting]
+		if word != "" then
+			result.push [word, quoting, comma]
+			comma = false
+		end if
 		word = ""
 		if c == """" or c == "'" then quoting = not quoting
-		if c == "?" then result.push ["?", false]
+		if c == "," then comma = true
+		if c == "?" then result.push ["?", false, false]
 	end for
-	if word != "" then result.push [word, quoting]
+	if word != "" then result.push [word, quoting, comma]
 	return result
 end function
 
-// Expand contractions: "don't" -> "do", "not".
+// Expand contractions: "don't" -> "do", "not".  A possessive "'s" that
+// isn't a contraction becomes a word of its own: "block's" -> "block", "'s".
 expandContractions = function(words)
 	result = []
 	for w in words
 		if not w[1] and lexicon.contractions.hasIndex(w[0]) then
+			comma = w[2]
 			for part in lexicon.contractions[w[0]].split(" ")
-				result.push [part, false]
+				result.push [part, false, comma]
+				comma = false
 			end for
+		else if not w[1] and w[0].len > 2 and w[0][-2:] == "'s" then
+			result.push [w[0][:-2], false, w[2]]
+			result.push ["'s", false, false]
 		else
 			result.push w
 		end if
@@ -111,7 +125,7 @@ joinPhrases = function(words)
 		joined = false
 		for phrase in lexicon.phrases
 			if phraseAt(words, i, phrase) then
-				result.push [phrase.join(" "), false]
+				result.push [phrase.join(" "), false, words[i][2]]
 				i += phrase.len
 				joined = true
 				break
@@ -132,7 +146,7 @@ end function
 tokenize = function(text, names=null, nouns=null)
 	tokens = []
 	for w in joinPhrases(expandContractions(splitWords(text)))
-		t = {"text": w[0], "quoted": w[1], "entries": []}
+		t = {"text": w[0], "quoted": w[1], "afterComma": w[2], "entries": []}
 		if t.quoted or (names and names.indexOf(t.text) != null) then
 			t.entries.push {"cat": "name", "form": "base", "stem": t.text}
 		end if
@@ -140,6 +154,12 @@ tokenize = function(text, names=null, nouns=null)
 			t.entries += lexicon.lookup(t.text)
 			if nouns then t.entries += learnedNounEntries(t.text, nouns)
 		end if
+		// A word nobody knows might be a new name, as in "Call it Bert"
+		// (no quotation marks).  It's marked "unknown", and only a frame
+		// that gives a name will take it; anywhere else, the parse fails,
+		// and the robot says it doesn't know the word.
+		t.unknown = not t.entries
+		if t.unknown then t.entries.push {"cat": "name", "form": "base", "stem": t.text, "unknown": true}
 		tokens.push t
 	end for
 	return tokens
@@ -162,7 +182,7 @@ end function
 // The first word nobody knows, or null.
 unknownWord = function(tokens)
 	for t in tokens
-		if not t.entries then return t.text
+		if t.unknown then return t.text
 	end for
 	return null
 end function
@@ -292,6 +312,10 @@ Parser.nounPhrase = function(pos)
 	for core in self.nounCore(pos)
 		results += self.withModifiers(core)
 	end for
+	// "The top of the red cube" means the red cube.
+	for t in self.word(pos, "topOf")
+		results += self.nounPhrase(t.next)
+	end for
 	results = longestFirst(results)
 	self.memo[key] = results
 	return results
@@ -315,20 +339,33 @@ longestFirst = function(results)
 end function
 
 // Noun phrases joined by "and" or "or": "the red cube and a pyramid",
-// "X and Y and Z", "both X and Y", "either X or Y".  (Not "X, Y and Z" yet,
-// since the commas are gone by now, and without them two noun phrases in a
-// row would be taken as a list far too often.)  These are allowed where a command or a verb wants a
-// thing, and nowhere else (yet).  A joined phrase is an NP node whose parts
-// are the NPs and the joining words, with a "join" of "and" or "or".
+// "X and Y and Z", "X, Y and Z", "both X and Y", "either X or Y".  These
+// are allowed where a command or a verb wants a thing, and nowhere else
+// (yet).  A joined phrase is an NP node whose parts are the NPs and the
+// joining words, with a "join" of "and" or "or".
 Parser.nounPhrases = function(pos)
 	key = "NPS:" + pos
 	if self.memo.hasIndex(key) then return self.memo[key]
 	results = self.nounPhrase(pos)
 	for first in self.conjunct(pos)
-		results += self.joinedRest(first.next, [first.tree])
+		results += self.listRest(first.next, [first.tree])
 	end for
 	results = longestFirst(results)
 	self.memo[key] = results
+	return results
+end function
+
+// The rest of a list, after the items so far: more items after commas, then
+// "and" or "or" and the last item.  ("X, Y" with no "and" isn't a list.
+// Without the commas, two noun phrases in a row would be taken as a list
+// far too often: "Pick up the block the box".)
+Parser.listRest = function(pos, items)
+	results = self.joinedRest(pos, items)
+	if pos < self.tokens.len and self.tokens[pos].afterComma then
+		for c in self.conjunct(pos)
+			results += self.listRest(c.next, items + [c.tree])
+		end for
+	end if
 	return results
 end function
 
@@ -395,9 +432,14 @@ end function
 Parser.nounCore = function(pos)
 	results = []
 	for p in self.word(pos, "pronoun")
-		if p.tree.entry.det then results.push result(node("NP", [p.tree]), p.next)
+		if not p.tree.entry.det then continue
+		results.push result(node("NP", [p.tree]), p.next)
+		// "something green", "anything red": adjectives after the pronoun
+		adj = self.adjectives(p.next)
+		if adj.trees then results.push result(node("NP", [p.tree] + adj.trees), adj.next)
 	end for
 	for n in self.word(pos, "name")
+		if n.tree.entry.hasIndex("unknown") then continue     // (see tokenize)
 		results.push result(node("NP", [n.tree]), n.next)
 	end for
 	// "Build one": the number one, standing for a noun said earlier.  (It's
@@ -442,6 +484,7 @@ Parser.determinerPhrase = function(pos)
 	results = [result(null, pos)]
 	results += self.word(pos, "det")
 	results += self.both(pos)
+	results += self.allThe(pos)
 	// "at least two", "at least one of"
 	for a in self.word(pos, "atLeast")
 		for n in self.word(a.next, "det")
@@ -478,6 +521,24 @@ Parser.both = function(pos)
 	return results
 end function
 
+// "all the" and "all of the" (+ cubes) mean "the", with a plural: "Where
+// are all the cubes?"  ("All cubes" is "every cube": see the lexicon.)
+Parser.allThe = function(pos)
+	results = []
+	for a in self.word(pos, "det")
+		if a.tree.word != "all" then continue
+		for o in self.optionalWord(a.next, "of")
+			for t in self.word(o.next, "det")
+				if t.tree.entry.det != "the" or t.tree.word != "the" then continue
+				tree = node("DET", [a.tree] + o.tree + [t.tree])
+				tree.info = {"det": "the", "n": null, "number": "pl", "partitive": false}
+				results.push result(tree, t.next)
+			end for
+		end for
+	end for
+	return results
+end function
+
 bothResult = function(parts, next, partitive=false)
 	tree = node("DET", parts)
 	tree.info = {"det": "both", "n": 2, "number": "pl", "partitive": partitive}
@@ -502,11 +563,23 @@ agrees = function(detTree, nounTree)
 end function
 
 // All the adjectives in a row from here: {trees, next}.  (Taking them all
-// is safe, since no adjective is also a noun.)
+// is safe, since no adjective is also a noun.)  An ordinal goes with the
+// superlative after it: "the second tallest block" has an ADJ node for
+// "second tallest".
 Parser.adjectives = function(pos)
 	trees = []
 	while true
-		found = self.word(pos, "adj")
+		ranked = null
+		for o in self.word(pos, "ordinal")
+			for a in self.wordWith(o.next, "adj", "superlative")
+				ranked = result(node("ADJ", [o.tree, a.tree]), a.next)
+			end for
+		end for
+		if ranked then
+			found = [ranked]
+		else
+			found = self.word(pos, "adj")
+		end if
 		if not found then break
 		trees.push found[0].tree
 		pos = found[0].next
@@ -530,7 +603,42 @@ end function
 
 // What can follow a noun to say more about it.
 Parser.modifier = function(pos)
-	return self.prepPhrase(pos) + self.comparison(pos) + self.relativeClause(pos)
+	return self.prepPhrase(pos) + self.comparison(pos) + self.relativeClause(pos) + self.ingClause(pos) +
+	  self.coloredPhrase(pos)
+end function
+
+// "(blocks) colored red", "colored red or blue": a COLORED node with the
+// colors (and the "or"s).
+Parser.coloredPhrase = function(pos)
+	results = []
+	for c in self.word(pos, "colored")
+		parts = [c.tree]
+		next = c.next
+		while true
+			found = null
+			for a in self.word(next, "adj")
+				if a.tree.entry.pred == "color" then found = a
+			end for
+			if found == null then break
+			parts.push found.tree
+			results.push result(node("COLORED", parts[:]), found.next)
+			ors = self.word(found.next, "or")
+			if not ors then break
+			parts.push ors[0].tree
+			next = ors[0].next
+		end while
+	end for
+	return results
+end function
+
+// "(the one) supporting a pyramid", "(the block) sitting on the table": a
+// relative clause without "which is".
+Parser.ingClause = function(pos)
+	results = []
+	for v in self.verbPhrase(pos)
+		if v.tree.parts[0].entry.form == "ing" then results.push result(node("REL", [v.tree]), v.next)
+	end for
+	return results
 end function
 
 // "on the table"
@@ -602,9 +710,15 @@ Parser.clauseBody = function(pos)
 	// "is [not] red", "is [not] on the table", "is taller than ...",
 	// "is sitting on the table"
 	for b in self.word(pos, "be")
-		for n in self.optionalNot(b.next)
-			for p in self.predicate(n.next)
-				results.push result([b.tree] + n.tree + [p.tree], p.next)
+		for p in self.predicates(b.next)
+			results.push result([b.tree] + p.tree, p.next)
+		end for
+	end for
+	// "you are holding", "are you holding" (in "what are you holding")
+	for b in self.word(pos, "be")
+		for y in self.word(b.next, "you")
+			for v in self.wordWith(y.next, "verb", "held")
+				results.push result([b.tree, y.tree, v.tree], v.next)
 			end for
 		end for
 	end for
@@ -623,11 +737,57 @@ Parser.clauseBody = function(pos)
 	return results
 end function
 
-// What can follow "is": an adjective, a place, a comparison, or a posture
-// with a place ("sitting on the table").
+// What can follow "is", with or without "not", and perhaps several joined
+// by "and" or "but": "red", "not in the box", "red and on the table",
+// "green but not on the table".  A list of results whose trees are lists of
+// parts: [not] predicate, or a PREDS node for several.
+Parser.predicates = function(pos)
+	results = []
+	for n in self.optionalNot(pos)
+		for p in self.predicate(n.next)
+			results.push result(n.tree + [p.tree], p.next)
+			for more in self.morePredicates(p.next, n.tree + [p.tree])
+				results.push result([more.tree], more.next)
+			end for
+		end for
+	end for
+	return results
+end function
+
+// "and on the table", "but not in the box", after the predicates so far
+// (a list of parts): PREDS nodes.
+Parser.morePredicates = function(pos, items)
+	results = []
+	for j in self.word(pos, "and") + self.word(pos, "but")
+		for n in self.optionalNot(j.next)
+			for p in self.predicate(n.next)
+				parts = items + [j.tree] + n.tree + [p.tree]
+				results.push result(node("PREDS", parts), p.next)
+				results += self.morePredicates(p.next, parts)
+			end for
+		end for
+	end for
+	return results
+end function
+
+// What can follow "is": an adjective, a place, a comparison, a posture
+// with a place ("sitting on the table"), or "the" and a superlative ("the
+// biggest").
 Parser.predicate = function(pos)
 	results = []
 	results += self.word(pos, "adj")
+	results += self.coloredPhrase(pos)     // "(is) colored green"
+	for t in self.word(pos, "det")
+		if t.tree.entry.det != "the" then continue
+		for a in self.wordWith(t.next, "adj", "superlative")
+			results.push result(node("ADJP", [t.tree, a.tree]), a.next)
+		end for
+	end for
+	// "(is) the tallest block", "(is) a cube": what it is.
+	for np in self.nounPhrase(pos)
+		first = np.tree.parts[0]
+		if first.cat == "det" and (first.entry.det == "the" or first.entry.det == "a") then results.push np
+	end for
 	results += self.word(pos, "mine")
 	results += self.prepPhrase(pos)
 	results += self.comparison(pos)
@@ -641,9 +801,22 @@ Parser.predicate = function(pos)
 end function
 
 // A verb that's a relation, with its object ("supports a pyramid"), or a
-// posture verb with a place ("sits on the table").
+// posture verb with a place ("sits on the table"), or "have" something "on
+// it" (or "in it"), which is to support (or contain) it.
 Parser.verbPhrase = function(pos)
 	results = []
+	for h in self.word(pos, "have")
+		if h.tree.word == "had" then continue
+		for np in self.nounPhrase(h.next)
+			for p in self.word(np.next, "prep")
+				if p.tree.entry.pred != "on" and p.tree.entry.pred != "in" then continue
+				for it in self.plainPronoun(p.next)
+					if it.tree.parts[0].word != "it" then continue
+					results.push result(node("VP", [h.tree, np.tree, p.tree, it.tree]), it.next)
+				end for
+			end for
+		end for
+	end for
 	for v in self.wordWith(pos, "verb", "rel")
 		for np in self.nounPhrases(v.next)
 			results.push result(node("VP", [v.tree, np.tree]), np.next)
@@ -709,7 +882,7 @@ end function
 // Commands
 //----------------------------------------------------------------------
 
-particles = ["up", "down", "off", "out"]
+particles = ["up", "down", "off", "out", "back"]
 
 // The ways a frame's shape can be said.  A particle right before the
 // object may also come after it: "pick up the block", "pick the block up".
@@ -784,6 +957,8 @@ Parser.element = function(pos, element)
 		for p in self.word(pos, "prep")
 			if p.tree.entry.pred == element then results.push p
 		end for
+		// Or a word of that category: "to", "from", "out of", "me".
+		results += self.word(pos, element)
 	end if
 	return results
 end function
@@ -800,22 +975,39 @@ Parser.commands = function(pos)
 				end for
 			end for
 		end for
+		// "Put it in the box, then pick up the red cube"
+		for t in self.word(c.next, "then")
+			for more in self.commands(t.next)
+				results.push result([c.tree, t.tree] + more.tree, more.next)
+			end for
+		end for
 	end for
 	return results
 end function
 
-// "Will you please", "can you", "please", or nothing: a list of parts.
+// What may come before a command without changing what it asks for: a
+// list of parts.  In order, each of these is optional:
+//   a word like "now", "first", "then"
+//   "will you", "can you", "could you"...
+//   "please"
+//   "I want you to", "try to", "go"...
+// So "Now could you please try to find a red pyramid" is a command to find
+// a red pyramid.
 Parser.politeness = function(pos)
-	starts = [result([], pos)]
-	for m in self.word(pos, "modal")
-		for y in self.word(m.next, "you")
-			starts.push result([m.tree, y.tree], y.next)
-		end for
-	end for
 	results = []
-	for s in starts
-		for p in self.optionalWord(s.next, "polite")
-			results.push result(s.tree + p.tree, p.next)
+	for lead in self.optionalWord(pos, "lead")
+		starts = [lead]
+		for m in self.word(lead.next, "modal")
+			for y in self.word(m.next, "you")
+				starts.push result(lead.tree + [m.tree, y.tree], y.next)
+			end for
+		end for
+		for s in starts
+			for p in self.optionalWord(s.next, "polite")
+				for r in self.optionalWord(p.next, "request")
+					results.push result(s.tree + p.tree + r.tree, r.next)
+				end for
+			end for
 		end for
 	end for
 	return results
@@ -835,9 +1027,59 @@ end function
 // Every way to read a whole sentence starting here.
 Parser.sentence = function(pos)
 	return self.commandSentence(pos) + self.statementSentence(pos) +
-	  self.thereStatement(pos) + self.defineStatement(pos) + self.existsQuestion(pos) + self.whQuestion(pos) +
+	  self.thereStatement(pos) + self.defineStatement(pos) + self.existsQuestion(pos) + self.seeQuestion(pos) + self.handQuestion(pos) +
+	  self.whQuestion(pos) + self.identifyQuestion(pos) + self.choiceQuestion(pos) + self.whereQuestion(pos) +
 	  self.attributeQuestion(pos) + self.yesNoQuestion(pos) + self.canQuestion(pos) +
-	  self.didQuestion(pos) + self.eventQuestion(pos) + self.thanks(pos)
+	  self.didQuestion(pos) + self.eventQuestion(pos) + self.whatDoneQuestion(pos) + self.chat(pos) + self.tellMe(pos) +
+	  self.showMe(pos) + self.methodQuestion(pos)
+end function
+
+// "Tell me what you are holding."  "Can you tell me where the red cube is?"
+// A question asked as a command; it means the question.  (The question
+// here has the order of a statement: "what you are holding", "where the
+// red cube is".)
+Parser.tellMe = function(pos)
+	results = []
+	for p in self.politeness(pos)
+		for t in self.wordWith(p.next, "verb", "tell")
+			if t.tree.entry.form != "base" then continue
+			for m in self.word(t.next, "me")
+				for q in self.whQuestion(m.next) + self.embeddedWhere(m.next)
+					results.push q
+				end for
+			end for
+		end for
+	end for
+	return results
+end function
+
+// "Show me the red cube", "Please show me where the box is": where is it?
+Parser.showMe = function(pos)
+	results = []
+	for p in self.politeness(pos)
+		for s in self.word(p.next, "show")
+			for m in self.word(s.next, "me")
+				for np in self.nounPhrase(m.next)
+					results.push result(sentenceNode("where", [s.tree, m.tree, np.tree]), np.next)
+				end for
+				results += self.embeddedWhere(m.next)
+			end for
+		end for
+	end for
+	return results
+end function
+
+// "where the red cube is"
+Parser.embeddedWhere = function(pos)
+	results = []
+	for w in self.word(pos, "where")
+		for np in self.nounPhrase(w.next)
+			for b in self.word(np.next, "be")
+				results.push result(sentenceNode("where", [w.tree, np.tree, b.tree]), b.next)
+			end for
+		end for
+	end for
+	return results
 end function
 
 // Telling the robot something: "The blue pyramid is mine."  "I own blocks
@@ -886,11 +1128,11 @@ Parser.ownStatement = function(pos)
 	return results
 end function
 
-// "Thank you."
-Parser.thanks = function(pos)
+// "Thank you."  "Hello."  "Help."  Social niceties, each a whole sentence.
+Parser.chat = function(pos)
 	results = []
-	for t in self.word(pos, "thanks")
-		results.push result(sentenceNode("thanks", [t.tree]), t.next)
+	for t in self.word(pos, "chat")
+		results.push result(sentenceNode("chat", [t.tree]), t.next)
 	end for
 	return results
 end function
@@ -901,6 +1143,96 @@ Parser.commandSentence = function(pos)
 	for p in self.politeness(pos)
 		for c in self.commands(p.next)
 			results.push result(sentenceNode("command", p.tree + c.tree), c.next)
+		end for
+	end for
+	return results
+end function
+
+// "Is your hand empty?"  "Is your hand full?"
+Parser.handQuestion = function(pos)
+	results = []
+	for b in self.word(pos, "be")
+		for h in self.word(b.next, "yourHand")
+			for a in self.word(h.next, "adj")
+				if a.tree.entry.pred != "empty" and a.tree.entry.pred != "full" then continue
+				results.push result(sentenceNode("hand", [b.tree, h.tree, a.tree]), a.next)
+			end for
+		end for
+	end for
+	return results
+end function
+
+// "Do you see a red pyramid?"  "Can you see the box?"  These ask whether
+// there is one, as "Is there...?" does.  (The robot sees everything.)
+Parser.seeQuestion = function(pos)
+	results = []
+	// ("Have you ever seen a blue pyramid?" too: it has seen whatever is
+	// here now.)
+	for d in self.word(pos, "do") + self.word(pos, "modal") + self.word(pos, "have")
+		for y in self.word(d.next, "you")
+			for e in self.optionalWord(y.next, "ever")
+				for v in self.wordWith(e.next, "verb", "see")
+					for np in self.nounPhrase(v.next)
+						results.push result(sentenceNode("exists", [d.tree, y.tree] + e.tree + [v.tree, np.tree]), np.next)
+					end for
+				end for
+			end for
+		end for
+	end for
+	return results
+end function
+
+// "What is it?"  "Which is the tallest block?"  "What are the things in the
+// box?"  These ask the robot to say what the noun phrase means.
+Parser.identifyQuestion = function(pos)
+	results = []
+	for w in self.word(pos, "pronoun")
+		if w.tree.entry.det != "which" then continue
+		for b in self.word(w.next, "be")
+			for np in self.nounPhrase(b.next)
+				if whKind(np.tree) then continue
+				results.push result(sentenceNode("identify", [w.tree, b.tree, np.tree]), np.next)
+			end for
+		end for
+	end for
+	return results
+end function
+
+// "Which is taller, the red cube or the blue block?"  The answer is
+// whichever of them is the tallest.
+Parser.choiceQuestion = function(pos)
+	results = []
+	for w in self.word(pos, "pronoun")
+		if w.tree.entry.det != "which" then continue
+		for b in self.word(w.next, "be")
+			for c in self.word(b.next, "comparative")
+				if c.tree.entry.hasIndex("as") then continue
+				for np in self.nounPhrases(c.next)
+					if not np.tree.hasIndex("join") then continue
+					results.push result(sentenceNode("choice", [w.tree, b.tree, c.tree, np.tree]), np.next)
+				end for
+			end for
+		end for
+	end for
+	return results
+end function
+
+// "Where is the red cube?"  "Where are all the cubes?"  "Where did the red
+// cube go?"
+Parser.whereQuestion = function(pos)
+	results = []
+	for w in self.word(pos, "where")
+		for b in self.word(w.next, "be")
+			for np in self.nounPhrase(b.next)
+				results.push result(sentenceNode("where", [w.tree, b.tree, np.tree]), np.next)
+			end for
+		end for
+		for d in self.word(w.next, "do")
+			for np in self.nounPhrase(d.next)
+				for g in self.word(np.next, "go")
+					results.push result(sentenceNode("where", [w.tree, d.tree, np.tree, g.tree]), g.next)
+				end for
+			end for
 		end for
 	end for
 	return results
@@ -970,8 +1302,63 @@ Parser.whQuestion = function(pos)
 	for np in self.nounPhrase(pos)
 		if whKind(np.tree) == null then continue
 		for rest in self.whRest(np.next)
+			// ("What is the tallest thing?" is identifyQuestion's.)
+			if rest.tree.parts.len == 2 and rest.tree.parts[0].cat == "be" and rest.tree.parts[1].cat == "NP" then continue
 			for t in self.optionalTime(rest.next)
 				results.push result(sentenceNode("wh", [np.tree, rest.tree] + t.tree), t.next)
+			end for
+		end for
+	end for
+	return results
+end function
+
+// Nothing, or "have to": a list of parts.
+Parser.haveTo = function(pos)
+	results = [result([], pos)]
+	for h in self.word(pos, "have")
+		if h.tree.word != "have" then continue
+		for t in self.word(h.next, "to")
+			results.push result([h.tree, t.tree], t.next)
+		end for
+	end for
+	return results
+end function
+
+// Nothing, or what something was done for: "to do that", "to put the red
+// cube in the box".  A list of parts: a PURPOSE node, or nothing.
+Parser.optionalPurpose = function(pos)
+	results = [result([], pos)]
+	for t in self.word(pos, "to")
+		for c in self.command(t.next)
+			results.push result([node("PURPOSE", [t.tree, c.tree])], c.next)
+		end for
+		for d in self.word(t.next, "do")
+			if d.tree.word != "do" then continue
+			for p in self.plainPronoun(d.next)
+				results.push result([node("PURPOSE", [t.tree, d.tree, p.tree])], p.next)
+			end for
+		end for
+	end for
+	return results
+end function
+
+// "What did you do last?"  "What did you just do?"  "What have you done?"
+// Asks what the robot did most recently (that the user asked for).
+Parser.whatDoneQuestion = function(pos)
+	results = []
+	for w in self.word(pos, "pronoun")
+		if w.tree.entry.det != "which" or w.tree.word != "what" then continue
+		for a in self.word(w.next, "do") + self.word(w.next, "have")
+			for y in self.word(a.next, "you")
+				for j in self.optionalWord(y.next, "just")
+					for d in self.word(j.next, "do")
+						if d.tree.word != "do" and d.tree.word != "done" then continue
+						for l in self.optionalWord(d.next, "last")
+							parts = [w.tree, a.tree, y.tree] + j.tree + [d.tree] + l.tree
+							results.push result(sentenceNode("whatDone", parts), l.next)
+						end for
+					end for
+				end for
 			end for
 		end for
 	end for
@@ -991,11 +1378,35 @@ Parser.whRest = function(pos)
 		end for
 	end for
 	// "... did you touch", "... did you put in the box": a command with
-	// the question's noun phrase as its object.
+	// the question's noun phrase as its object.  "... did you have to move
+	// to do that": the same, done for the sake of something else.
 	for d in self.word(pos, "do")
 		for y in self.word(d.next, "you")
+			for h in self.haveTo(y.next)
+				for c in self.command(h.next, true)
+					for p in self.optionalPurpose(c.next)
+						results.push result(node("WH", [d.tree, y.tree] + h.tree + [c.tree] + p.tree), p.next)
+					end for
+				end for
+			end for
+		end for
+	end for
+	// "... can you pick up": what the robot could do
+	for m in self.word(pos, "modal")
+		if m.tree.word != "can" and m.tree.word != "could" then continue
+		for y in self.word(m.next, "you")
 			for c in self.command(y.next, true)
-				results.push result(node("WH", [d.tree, y.tree, c.tree]), c.next)
+				results.push result(node("WH", [m.tree, y.tree, c.tree]), c.next)
+			end for
+		end for
+	end for
+	// "... have you picked up", "... have you ever moved"
+	for h in self.word(pos, "have")
+		for y in self.word(h.next, "you")
+			for e in self.optionalWord(y.next, "ever")
+				for c in self.command(e.next, true, "ed")
+					results.push result(node("WH", [h.tree, y.tree] + e.tree + [c.tree]), c.next)
+				end for
 			end for
 		end for
 	end for
@@ -1027,7 +1438,9 @@ Parser.whRest = function(pos)
 	return results
 end function
 
-// "What color is the pyramid?"
+// "What color is the pyramid?"  "What is that block's color?"  "What is the
+// color of the box?"  "How big is it?"  The noun phrase is always the last
+// part.
 Parser.attributeQuestion = function(pos)
 	results = []
 	for w in self.word(pos, "det")
@@ -1037,6 +1450,38 @@ Parser.attributeQuestion = function(pos)
 				for np in self.nounPhrase(b.next)
 					results.push result(sentenceNode("attribute", [w.tree, a.tree, b.tree, np.tree]), np.next)
 				end for
+			end for
+		end for
+	end for
+	for w in self.word(pos, "pronoun")
+		if w.tree.entry.det != "which" then continue
+		for b in self.word(w.next, "be")
+			// "what is that block's color"
+			for np in self.nounPhrase(b.next)
+				for s in self.word(np.next, "poss")
+					for a in self.word(s.next, "attribute")
+						results.push result(sentenceNode("attribute", [w.tree, b.tree, s.tree, a.tree, np.tree]), a.next)
+					end for
+				end for
+			end for
+			// "what is the color of the box"
+			for t in self.word(b.next, "det")
+				if t.tree.entry.det != "the" then continue
+				for a in self.word(t.next, "attribute")
+					for o in self.word(a.next, "of")
+						for np in self.nounPhrase(o.next)
+							results.push result(sentenceNode("attribute", [w.tree, b.tree, t.tree, a.tree, o.tree, np.tree]), np.next)
+						end for
+					end for
+				end for
+			end for
+		end for
+	end for
+	// "how big is it"
+	for h in self.word(pos, "howAttr")
+		for b in self.word(h.next, "be")
+			for np in self.nounPhrase(b.next)
+				results.push result(sentenceNode("attribute", [h.tree, b.tree, np.tree]), np.next)
 			end for
 		end for
 	end for
@@ -1050,10 +1495,34 @@ Parser.yesNoQuestion = function(pos)
 	results = []
 	for b in self.word(pos, "be")
 		for np in self.nounPhrase(b.next)
-			for n in self.optionalNot(np.next)
-				for p in self.predicate(n.next)
-					claim = node("REL", n.tree + [p.tree])
-					results.push result(sentenceNode("yes-no", [b.tree, np.tree, claim]), p.next)
+			for p in self.predicates(np.next)
+				claim = node("REL", p.tree)
+				results.push result(sentenceNode("yes-no", [b.tree, np.tree, claim]), p.next)
+			end for
+		end for
+	end for
+	// "Do you have anything in your hand?"  "Do you have the red cube?"
+	// Having something is holding it.
+	for d in self.word(pos, "do")
+		for y in self.word(d.next, "you")
+			for h in self.word(y.next, "have")
+				if h.tree.word != "have" then continue
+				for np in self.nounPhrase(h.next)
+					for a in self.optionalWord(np.next, "adj")
+						if a.tree and a.tree[0].entry.pred != "held" then continue
+						results.push result(sentenceNode("yes-no", [d.tree, np.tree, node("REL", [y.tree, h.tree] + a.tree)]), a.next)
+					end for
+				end for
+			end for
+		end for
+	end for
+	// "Are you holding the red cube?"  (Again the claim comes after the noun
+	// phrase in the parts.)
+	for b in self.word(pos, "be")
+		for y in self.word(b.next, "you")
+			for v in self.wordWith(y.next, "verb", "held")
+				for np in self.nounPhrase(v.next)
+					results.push result(sentenceNode("yes-no", [b.tree, np.tree, node("REL", [y.tree, v.tree])]), np.next)
 				end for
 			end for
 		end for
@@ -1118,9 +1587,11 @@ Parser.didQuestion = function(pos)
 	for a in self.word(pos, "do") + self.word(pos, "have")
 		if a.tree.cat == "do" then form = "base" else form = "ed"
 		for y in self.word(a.next, "you")
-			for c in self.command(y.next, false, form)
-				for t in self.optionalTime(c.next)
-					results.push result(sentenceNode("did", [a.tree, y.tree, c.tree] + t.tree), t.next)
+			for e in self.optionalWord(y.next, "ever")
+				for c in self.command(e.next, false, form)
+					for t in self.optionalTime(c.next)
+						results.push result(sentenceNode("did", [a.tree, y.tree] + e.tree + [c.tree] + t.tree), t.next)
+					end for
 				end for
 			end for
 		end for
@@ -1180,12 +1651,15 @@ Parser.pastAction = function(pos)
 	return results
 end function
 
-// "Why did you pick it up?"  "How did you do it?"  "Why?"
+// "Why did you pick it up?"  "How did you do it?"  "Why?"  ("How do you
+// build a steeple?", in the present, asks how it's done in general: see
+// methodQuestion.)
 Parser.eventQuestion = function(pos)
 	results = []
 	for w in self.word(pos, "whAdverb")
 		results.push result(sentenceNode("event", [w.tree]), w.next)
 		for d in self.word(w.next, "do")
+			if d.tree.word == "do" and w.tree.entry.q == "how" then continue
 			for y in self.word(d.next, "you")
 				for c in self.command(y.next)
 					results.push result(sentenceNode("event", [w.tree, d.tree, y.tree, c.tree]), c.next)
@@ -1202,12 +1676,32 @@ Parser.eventQuestion = function(pos)
 	return results
 end function
 
+// "How do you build a steeple?"  "How would you build one?"  How the robot
+// goes about something, in general.
+Parser.methodQuestion = function(pos)
+	results = []
+	for w in self.word(pos, "whAdverb")
+		if w.tree.entry.q != "how" then continue
+		for d in self.word(w.next, "do") + self.word(w.next, "modal")
+			if d.tree.word != "do" and d.tree.word != "would" and d.tree.word != "can" then continue
+			for y in self.word(d.next, "you")
+				for c in self.command(y.next)
+					results.push result(sentenceNode("method", [w.tree, d.tree, y.tree, c.tree]), c.next)
+				end for
+			end for
+		end for
+	end for
+	return results
+end function
+
 // What may end a sentence: "please", a question mark.
 Parser.ending = function(pos)
 	results = []
-	for n in self.optionalWord(pos, "now")
-		for p in self.optionalWord(n.next, "polite")
-			results += self.optionalWord(p.next, "punct")
+	for a in self.optionalWord(pos, "again")
+		for n in self.optionalWord(a.next, "now")
+			for p in self.optionalWord(n.next, "polite")
+				results += self.optionalWord(p.next, "punct")
+			end for
 		end for
 	end for
 	return results
@@ -1227,8 +1721,6 @@ end function
 // whole text, best first, or an error message if there are none.
 parse = function(text, names=null, nouns=null)
 	tokens = tokenize(text, names, nouns)
-	word = unknownWord(tokens)
-	if word then return {"trees": [], "error": "Sorry, I don't know the word """ + word + """."}
 	p = Parser.make(tokens)
 	trees = []
 	for r in p.sentence(0)
@@ -1240,6 +1732,9 @@ parse = function(text, names=null, nouns=null)
 		end for
 	end for
 	if trees then return {"trees": trees, "error": null}
+	// A word we don't know is most likely the trouble.
+	word = unknownWord(tokens)
+	if word then return {"trees": [], "error": "Sorry, I don't know the word """ + word + """."}
 	return {"trees": [], "error": p.complaint}
 end function
 
@@ -1253,7 +1748,12 @@ parseNounPhrase = function(text, names=null, nouns=null)
 	p = Parser.make(tokens)
 	trees = []
 	for r in p.nounPhrase(0)
-		if r.next == tokens.len then trees.push r.tree
+		for e in p.ending(r.next)
+			if e.next == tokens.len then
+				trees.push r.tree
+				break
+			end if
+		end for
 	end for
 	if trees then return {"trees": trees, "error": null}
 	return {"trees": [], "error": p.complaint}
