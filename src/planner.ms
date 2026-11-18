@@ -170,6 +170,10 @@ Planner.getRidOf = function(thing)
 	return self.moveOnto(thing, self.world.table)
 end function
 
+// Why a pyramid can't be under anything.  (The brain says it too, when
+// asked "Can a pyramid support a pyramid?")
+pyramidRule = "Nothing will stay on top of a pyramid."
+
 // Stack things up, one on another.  The biggest goes at the bottom, and a
 // pyramid (only one!) can only go on top.
 Planner.stack = function(things)
@@ -179,7 +183,7 @@ Planner.stack = function(things)
 	for t in things
 		if t.shape == "pyramid" then pyramids.push t else blocks.push {"thing": t, "size": t.volume}
 	end for
-	if pyramids.len > 1 then return "I can't. Nothing will stay on top of a pyramid."
+	if pyramids.len > 1 then return "I can't. " + pyramidRule
 	blocks.sort "size", false
 	order = []
 	for b in blocks

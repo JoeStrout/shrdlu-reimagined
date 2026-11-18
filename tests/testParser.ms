@@ -262,6 +262,7 @@ expect "Did you touch a block after you picked it up?", "x1 = a block; e1 = even
 // Asking about the things the robot did something to, and the past.
 expect "How many objects did you touch while you were doing it?",
   "x1 = how-many objects [did e1]; e1 = event Touch x1 [while e2]; e2 = event Do; Ask count x1"
+expect "How many items did you touch?", "x1 = how-many objects [did e1]; e1 = event Touch x1; Ask count x1"
 expect "Which green cube did you move?", "x1 = which cube [color green] [did e1]; e1 = event Move x1; Ask which x1"
 expect "What did you put in the box?", "x1 = which thing [did e1]; x2 = the box; e1 = event PutIn x1, x2; Ask which x1"
 expect "Did you touch any pyramid while you were stacking up the red cube?",
@@ -281,6 +282,46 @@ expect "Do I own the box?", "x1 = the box; Ask yes-no x1 [owned]"
 expect "Is the red cube mine?", "x1 = the cube [color red]; Ask yes-no x1 [owned]"
 expect "Which blocks do I own?", "x1 = which blocks [owned]; Ask which x1"
 expect "How many blocks which I own are in the box?", "x1 = how-many blocks [owned] [in x2]; x2 = the box; Ask count x1"
+
+// Noun phrases joined by "and" and "or", in commands and after relation
+// verbs.  "Both" means "the", and there must be two.
+expect "Will you please stack up both of the red blocks and either a green cube or a pyramid?",
+  "x1 = both blocks [color red]; x2 = a cube [color green]; x3 = a pyramid; x4 = x2 or x3; x5 = x1 and x4; Stack x5"
+expect "Pick up the red cube or the blue block.", "x1 = the cube [color red]; x2 = the block [color blue]; x3 = x1 or x2; PickUp x3"
+expect "Put both the red cube and the blue pyramid in the box.",
+  "x1 = the cube [color red]; x2 = the pyramid [color blue]; x3 = x1 and x2; x4 = the box; PutIn x3, x4"
+expect "Stack up the red cube and a pyramid and the box.",
+  "x1 = the cube [color red]; x2 = a pyramid; x3 = the box; x4 = x1 and x2 and x3; Stack x4"
+expect "Is there a block which supports a pyramid and a block?",
+  "x1 = a block [supports x4]; x2 = a pyramid; x3 = a block; x4 = x2 and x3; Ask exists x1"
+expect "Stack up both of them.", "x1 = both of them; Stack x1"
+expect "Pick up both green cubes.", "x1 = both cubes [color green]; PickUp x1"
+
+// "As wide as", relative clauses joined by "and" or "but", and "it" meaning
+// the thing being described, from inside a clause about something else.
+expect "Is there a block as wide as the box?", "x1 = a block [asWide x2]; x2 = the box; Ask exists x1"
+expect "Is there a block which is red and is on the table?",
+  "x1 = a block [color red] [on x2]; x2 = the table; Ask exists x1"
+readings = readingsOf("Is there anything which is bigger than every pyramid but is not as wide as the thing that supports it?")
+check readings and readings[0] == "x1 = any thing [bigger x2] [not [asWide x3]]; x2 = every pyramid; x3 = the thing [supports x1]; Ask exists x1",
+  "turn 35: " + readings
+expect "Is there a block which is bigger than it?", "x1 = a block [bigger x2]; x2 = it; Ask exists x1"
+
+// Questions about ability.  "Can you...?" is still a polite command.
+expect "Can the table pick up blocks?", "x1 = the table; x2 = any blocks; e1 = event PickUp x2 [by x1]; Ask can e1"
+expect "Can a pyramid be supported by a block?", "x1 = a pyramid; x2 = a block; Ask can x1 [on x2]"
+expect "Can a pyramid support a pyramid?", "x1 = a pyramid; x2 = a pyramid; Ask can x1 [supports x2]"
+expect "Can a block not be red?", "x1 = a block; Ask can x1 [not [color red]]"
+expect "Can you pick up a block?", "x1 = a block; PickUp x1"
+
+// "Since we began" is the whole conversation, so it adds nothing.
+expect "Have you picked up the red cube since we began?", "x1 = the cube [color red]; e1 = event PickUp x1; Ask exists e1"
+expect "Have you picked superblock up since we began?", "x1 = superblock; e1 = event PickUp x1; Ask exists e1", ["superblock"]
+
+// Claims, for the robot to check, now or then.
+expect "There were five blocks to the left of the box then.",
+  "x1 = 5 blocks [then [leftOf x2]]; x2 = the box; Claim exists x1"
+expect "There is a red block on the table.", "x1 = a block [color red] [on x2]; x2 = the table; Claim exists x1"
 
 // The classic ambiguity, in a command.
 readings = readingsOf("Put the blue pyramid on the block in the box.")

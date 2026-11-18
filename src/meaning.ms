@@ -23,20 +23,58 @@ Meaning.make = function
 	m.prog = icl.Program.make
 	m.phrases = []     // {words, var} for each noun phrase, so the robot can
 	                   // say "By 'the block in the box', I assume you mean..."
+	m.describing = []  // the descriptions being built, outermost first
 	return m
 end function
 
 // Add a description for a noun phrase (and any it mentions) to the
 // program.  Returns its variable.
 Meaning.describe = function(np)
+	if np.hasIndex("join") then return self.describeGroup(np)
+	bound = self.boundPronoun(np)
+	if bound then return bound
 	d = self.descriptionStart(np)
 	var = self.prog.add(d)     // added first, so it gets the lowest number
 	self.phrases.push {"words": parser.wordsOf(np), "var": var}
+	self.describing.push var
 	for part in np.parts
 		c = self.constraintFor(part)
 		if c then d.props.push c
 	end for
+	self.describing.pop
 	return var
+end function
+
+// "It" can mean the thing a description is about, when it's in a clause
+// about something else inside that description.  In "anything which is
+// not as wide as the thing that supports it", "it" is the anything:
+//   x1 = a thing [not [asWide x2]]
+//   x2 = the thing [supports x1]
+// But it can't be the thing its own clause is about ("a block which is
+// bigger than it" can't mean bigger than itself), so there must be a
+// description in between.  Returns that variable, or null.
+Meaning.boundPronoun = function(np)
+	if np.parts.len != 1 or np.parts[0].cat != "pronoun" then return null
+	if np.parts[0].entry.head != "it" or self.describing.len < 2 then return null
+	around = self.prog.lookup(self.describing[-2])
+	if icl.pronouns.hasIndex(around.head) then return null
+	return around.var
+end function
+
+// Noun phrases joined by "and" or "or": a description for each, and a
+// group that joins them.
+//   "the red cube and either a pyramid or the box"
+//   x1 = the cube [color red]
+//   x2 = a pyramid
+//   x3 = the box
+//   x4 = x2 or x3
+//   x5 = x1 and x4
+Meaning.describeGroup = function(np)
+	members = []
+	for part in np.parts
+		if part.cat == "NP" then members.push self.describe(part)
+	end for
+	return self.prog.add(icl.group(np.join, members))
 end function
 
 // The description for a noun phrase's determiner and noun, before any
@@ -155,6 +193,17 @@ Meaning.sentence = function(s)
 		end for
 	else if s.kind == "exists" then
 		self.prog.add icl.ask("exists", self.describe(s.parts[-1]))
+	else if s.kind == "claim" then
+		// "There were five blocks to the left of the box then": the
+		// constraints are about then, the time we were talking about.
+		var = self.describe(parser.partsOfCat(s, "NP")[0])
+		if parser.partsOfCat(s, "then") then
+			d = self.prog.lookup(var)
+			for i in d.props.indexes
+				d.props[i] = icl.constraint("then", [d.props[i]])
+			end for
+		end if
+		self.prog.add icl.claim("exists", var)
 	else if s.kind == "wh" then
 		// The question word's noun phrase, constrained by the rest:
 		// "how many blocks" + "are not in the box".
@@ -184,6 +233,17 @@ Meaning.sentence = function(s)
 	else if s.kind == "yes-no" then
 		var = self.describe(s.parts[1])
 		self.prog.add icl.ask("yes-no", var, self.constraintFor(s.parts[2]))
+	else if s.kind == "can" then
+		// "Can a pyramid be supported by a block?" -> Ask can x1 [on x2]
+		var = self.describe(s.parts[1])
+		self.prog.add icl.ask("can", var, self.constraintFor(s.parts[2]))
+	else if s.kind == "canDo" then
+		// "Can the table pick up blocks?" -> Ask can e1, with
+		//   e1 = event PickUp x2 [by x1]
+		actor = self.describe(s.parts[1])
+		cmd = s.parts[2]
+		e = icl.event(cmd.frame.icl, self.arguments(cmd), [icl.constraint("by", [actor])])
+		self.prog.add icl.ask("can", self.prog.add(e))
 	else if s.kind == "event" then
 		q = s.parts[0].entry.q
 		self.prog.add icl.ask(q, self.event(s))

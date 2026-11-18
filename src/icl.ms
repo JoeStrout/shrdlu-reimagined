@@ -19,13 +19,27 @@
 //                  A noun phrase: something to find in the world.
 //                  det is "a", "the", "any", "every", "no", "which",
 //                  "how-many", "number" (n says which), "at-least" (n says
-//                  how many), or null (for "it", "them", and names).
+//                  how many), "both" (the, and there must be just
+//                  two), or null (for "it", "them", and names).
+//   group        {kind:"group", var, join, members}
+//                  Noun phrases joined by "and" or "or" (join says which):
+//                  "the red cube and a pyramid" is x3 = x1 and x2.  members
+//                  are the joined variables, which may be groups too:
+//                  "both of the red blocks and either a green cube or a
+//                  pyramid" is x5 = x1 and x4, with x4 = x2 or x3.
 //   event        {kind:"event", var, verb, args, props}
 //                  Something that happened (or might have): "you picked it up".
 //   command      {kind:"command", verb, args}
 //   ask          {kind:"ask", q, target, attr, claim}
 //                  A question.  q is "exists", "count", "which", "yes-no",
-//                  "why", "how", "when", or "attribute" (attr says which).
+//                  "why", "how", "when", "can", or "attribute" (attr says
+//                  which).  "Can" asks whether something could be so (Ask
+//                  can x1 [on x2]), or could be done (Ask can e1, where e1
+//                  may say who would do it: event PickUp x2 [by x1]).
+//   claim        {kind:"claim", q, target, claim}
+//                  Something the user says is true, for the robot to
+//                  check: "There were five blocks to the left of the box
+//                  then" is Claim exists x1.  The same parts as a question.
 //   declare      {kind:"declare", verb, args}
 //                  Teaching the robot something: Define, Name, Own,
 //                  DontOwn.  Own x1 says the user owns what x1
@@ -40,13 +54,13 @@
 // Verbs are stored in lower camel case ("putIn") and printed capitalized
 // ("PutIn").
 
-determiners = ["a", "the", "any", "every", "no", "which", "how-many"]
+determiners = ["a", "the", "both", "any", "every", "no", "which", "how-many"]
 
 // Pronouns, and whether each one is plural.
 pronouns = {"it": false, "that": false, "this": false, "them": true, "they": true}
 
 // The kinds of question that aren't asking about an attribute.
-questionKinds = ["exists", "count", "which", "yes-no", "why", "how", "when"]
+questionKinds = ["exists", "count", "which", "yes-no", "why", "how", "when", "can"]
 
 // Statements that teach the robot something, rather than asking it to act.
 declareVerbs = ["define", "name", "own", "dontOwn"]
@@ -131,6 +145,11 @@ event = function(verb, args=null, props=null)
 	return {"kind": "event", "var": null, "verb": verb, "args": args, "props": props}
 end function
 
+// Noun phrases joined by "and" or "or".
+group = function(join, members)
+	return {"kind": "group", "var": null, "join": join, "members": members}
+end function
+
 command = function(verb, args=null)
 	if args == null then args = []
 	kind = "command"
@@ -146,6 +165,13 @@ ask = function(q, target, claim=null)
 		result.q = "attribute"
 		result.attr = q
 	end if
+	return result
+end function
+
+// A claim to check: like a question, but the user says it's so.
+claim = function(q, target, claimed=null)
+	result = ask(q, target, claimed)
+	result.kind = "claim"
 	return result
 end function
 
@@ -176,10 +202,10 @@ Program.newVar = function(prefix="x")
 	return prefix + i
 end function
 
-// Add a line.  Descriptions and events get a variable if they don't have one.
-// Returns the line's variable (or null for statements).
+// Add a line.  Descriptions, groups and events get a variable if they
+// don't have one.  Returns the line's variable (or null for statements).
 Program.add = function(item)
-	if item.kind == "description" or item.kind == "event" then
+	if item.kind == "description" or item.kind == "group" or item.kind == "event" then
 		if not item.var then
 			prefix = "x"
 			if item.kind == "event" then prefix = "e"
@@ -201,7 +227,7 @@ end function
 Program.statements = function
 	result = []
 	for item in self.lines
-		if item.kind != "description" and item.kind != "event" then result.push item
+		if ["description", "group", "event"].indexOf(item.kind) == null then result.push item
 	end for
 	return result
 end function
@@ -274,6 +300,8 @@ end function
 format = function(item)
 	if item.kind == "description" then
 		return item.var + " = " + formatNounPhrase(item)
+	else if item.kind == "group" then
+		return item.var + " = " + item.members.join(" " + item.join + " ")
 	else if item.kind == "event" then
 		s = item.var + " = event " + capitalize(item.verb)
 		if item.args then s += " " + formatArgs(item.args)
@@ -282,10 +310,10 @@ format = function(item)
 		s = capitalize(item.verb)
 		if item.args then s += " " + formatArgs(item.args)
 		return s
-	else if item.kind == "ask" then
+	else if item.kind == "ask" or item.kind == "claim" then
 		q = item.q
 		if q == "attribute" then q = item.attr
-		s = "Ask " + q + " " + item.target
+		s = capitalize(item.kind) + " " + q + " " + item.target
 		if item.claim then s += " " + formatConstraint(item.claim)
 		return s
 	end if
@@ -475,6 +503,23 @@ Reader.readEvent = function
 	return e
 end function
 
+// After "x5 =": variables joined by "and" or "or", as in "x1 and x4".
+// (All the joins must be the same word.)
+Reader.readGroup = function
+	members = [self.readAtom]
+	join = null
+	while not self.atEnd and not self.error
+		word = self.next
+		if word != "and" and word != "or" then return self.fail("expected ""and"" or ""or"" but found """ + word + """")
+		if join and word != join then return self.fail("can't mix ""and"" with ""or""; use another variable for one of them")
+		join = word
+		if not isVar(self.peek) then return self.fail("expected a variable after """ + word + """")
+		members.push self.next
+	end while
+	if join == null then return self.fail("expected ""and"" or ""or"" after " + members[0])
+	return group(join, members)
+end function
+
 // After "Ask": the kind of question, its target, and (for yes-no) a claim.
 Reader.readAsk = function
 	if not self.atWord then return self.fail("expected a kind of question after Ask, as in ""Ask color x1""")
@@ -483,6 +528,8 @@ Reader.readAsk = function
 	result = ask(q, self.next)
 	if q == "yes-no" then
 		if self.peek != "[" then return self.fail("a yes-no question needs a [claim]")
+		result.claim = self.readConstraint
+	else if q == "can" and self.peek == "[" then
 		result.claim = self.readConstraint
 	end if
 	if not self.atEnd then self.fail("unexpected " + self.describeNext)
@@ -498,6 +545,8 @@ Reader.readLine = function
 		if self.peek == "event" then
 			self.next
 			item = self.readEvent
+		else if isVar(self.peek) then
+			item = self.readGroup
 		else
 			item = self.readDescription
 		end if
@@ -507,6 +556,12 @@ Reader.readLine = function
 	if first == "Ask" then
 		self.next
 		return self.readAsk
+	end if
+	if first == "Claim" then
+		self.next
+		item = self.readAsk
+		if item then item.kind = "claim"
+		return item
 	end if
 	if first != null and isUpper(first[0]) then
 		self.next
@@ -531,7 +586,7 @@ varsUsedIn = function(item, result=null)
 			varsUsedIn x, result
 		end for
 	else if item isa map then
-		for key in ["args", "props", "target", "claim"]
+		for key in ["args", "props", "target", "claim", "members"]
 			if item.hasIndex(key) then varsUsedIn item[key], result
 		end for
 	end if

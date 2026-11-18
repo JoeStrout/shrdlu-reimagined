@@ -295,6 +295,65 @@ longestFirst = function(results)
 	return sorted
 end function
 
+// Noun phrases joined by "and" or "or": "the red cube and a pyramid",
+// "X and Y and Z", "both X and Y", "either X or Y".  (Not "X, Y and Z" yet,
+// since the commas are gone by now, and without them two noun phrases in a
+// row would be taken as a list far too often.)  These are allowed where a command or a verb wants a
+// thing, and nowhere else (yet).  A joined phrase is an NP node whose parts
+// are the NPs and the joining words, with a "join" of "and" or "or".
+Parser.nounPhrases = function(pos)
+	key = "NPS:" + pos
+	if self.memo.hasIndex(key) then return self.memo[key]
+	results = self.nounPhrase(pos)
+	for first in self.conjunct(pos)
+		results += self.joinedRest(first.next, [first.tree])
+	end for
+	results = longestFirst(results)
+	self.memo[key] = results
+	return results
+end function
+
+// The rest of a joined phrase, after the conjuncts so far: "and" or "or"
+// and another conjunct, perhaps followed by more of the same word.
+Parser.joinedRest = function(pos, items, join=null)
+	results = []
+	for c in self.word(pos, "and") + self.word(pos, "or")
+		if join and c.tree.word != join then continue
+		for last in self.conjunct(c.next)
+			parts = items + [c.tree, last.tree]
+			results.push result(joined(parts, c.tree.word), last.next)
+			results += self.joinedRest(last.next, parts, c.tree.word)
+		end for
+	end for
+	return results
+end function
+
+// One of the things joined: a noun phrase, or "either X or Y", or "both X
+// and Y".
+Parser.conjunct = function(pos)
+	results = self.nounPhrase(pos)
+	pairs = [["either", "or"], ["both", "and"]]
+	for pair in pairs
+		for w in self.word(pos, pair[0])
+			for a in self.nounPhrase(w.next)
+				for j in self.word(a.next, pair[1])
+					for b in self.nounPhrase(j.next)
+						tree = joined([w.tree, a.tree, j.tree, b.tree], pair[1])
+						results.push result(tree, b.next)
+					end for
+				end for
+			end for
+		end for
+	end for
+	return results
+end function
+
+joined = function(parts, join)
+	tree = node("NP", parts)
+	tree.join = join
+	return tree
+end function
+
 // "it", "them", "this", "this one": pronouns that stand alone.
 Parser.plainPronoun = function(pos)
 	results = []
@@ -355,6 +414,7 @@ end function
 Parser.determinerPhrase = function(pos)
 	results = [result(null, pos)]
 	results += self.word(pos, "det")
+	results += self.both(pos)
 	// "at least two", "at least one of"
 	for a in self.word(pos, "atLeast")
 		for n in self.word(a.next, "det")
@@ -370,6 +430,31 @@ Parser.determinerPhrase = function(pos)
 		end for
 	end for
 	return results
+end function
+
+// "both", "both the", "both of the" (+ red blocks), and "both of" (+ them).
+// Each means "the", with just two of them.
+Parser.both = function(pos)
+	results = []
+	for b in self.word(pos, "both")
+		results.push bothResult([b.tree], b.next)
+		for t in self.word(b.next, "det")
+			if t.tree.entry.det == "the" then results.push bothResult([b.tree, t.tree], t.next)
+		end for
+		for o in self.word(b.next, "of")
+			results.push bothResult([b.tree, o.tree], o.next, true)
+			for t in self.word(o.next, "det")
+				if t.tree.entry.det == "the" then results.push bothResult([b.tree, o.tree, t.tree], t.next)
+			end for
+		end for
+	end for
+	return results
+end function
+
+bothResult = function(parts, next, partitive=false)
+	tree = node("DET", parts)
+	tree.info = {"det": "both", "n": 2, "number": "pl", "partitive": partitive}
+	return result(tree, next)
 end function
 
 // What a determiner means: {det, n, number, partitive}.
@@ -403,9 +488,13 @@ Parser.adjectives = function(pos)
 end function
 
 // A noun phrase, and the same with each possible run of modifiers after it.
+// After a relative clause, another may follow with "and" or "but": "which
+// is bigger than every pyramid but is not as wide as the box".
 Parser.withModifiers = function(np)
 	results = [np]
-	for m in self.modifier(np.next)
+	more = []
+	if np.tree.parts[-1].cat == "REL" then more = self.moreClause(np.next)
+	for m in self.modifier(np.next) + more
 		longer = node("NP", np.tree.parts + [m.tree])
 		results += self.withModifiers(result(longer, m.next))
 	end for
@@ -428,10 +517,16 @@ Parser.prepPhrase = function(pos)
 	return results
 end function
 
-// "taller than the pyramid"
+// "taller than the pyramid", "as wide as the box"
 Parser.comparison = function(pos)
 	results = []
 	for c in self.word(pos, "comparative")
+		if c.tree.entry.hasIndex("as") then
+			for np in self.nounPhrase(c.next)
+				results.push result(node("CMP", [c.tree, np.tree]), np.next)
+			end for
+			continue
+		end if
 		for t in self.word(c.next, "than")
 			for np in self.nounPhrase(t.next)
 				results.push result(node("CMP", [c.tree, t.tree, np.tree]), np.next)
@@ -456,6 +551,20 @@ Parser.relativeClause = function(pos)
 	end for
 	for c in self.youHold(pos) + self.toldYou(pos) + self.iOwn(pos)
 		results.push result(node("REL", c.tree), c.next)
+	end for
+	return results
+end function
+
+// "and is red", "but which is not on the table": another relative clause,
+// after the first.
+Parser.moreClause = function(pos)
+	results = []
+	for j in self.word(pos, "and") + self.word(pos, "but")
+		for rp in self.optionalWord(j.next, "relpro")
+			for c in self.clauseBody(rp.next)
+				results.push result(node("REL", [j.tree] + rp.tree + c.tree), c.next)
+			end for
+		end for
 	end for
 	return results
 end function
@@ -509,7 +618,7 @@ end function
 Parser.verbPhrase = function(pos)
 	results = []
 	for v in self.wordWith(pos, "verb", "rel")
-		for np in self.nounPhrase(v.next)
+		for np in self.nounPhrases(v.next)
 			results.push result(node("VP", [v.tree, np.tree]), np.next)
 		end for
 	end for
@@ -637,7 +746,7 @@ end function
 // particle, and anything else is a preposition meaning that ("on" matches
 // "on", "onto", "on top of"...).
 Parser.element = function(pos, element)
-	if element == "thing" then return self.nounPhrase(pos)
+	if element == "thing" then return self.nounPhrases(pos)
 	if element == "name" then return self.word(pos, "name")
 	results = []
 	if particles.indexOf(element) != null then
@@ -699,8 +808,8 @@ end function
 // Every way to read a whole sentence starting here.
 Parser.sentence = function(pos)
 	return self.commandSentence(pos) + self.statementSentence(pos) +
-	  self.existsQuestion(pos) + self.whQuestion(pos) +
-	  self.attributeQuestion(pos) + self.yesNoQuestion(pos) +
+	  self.thereStatement(pos) + self.existsQuestion(pos) + self.whQuestion(pos) +
+	  self.attributeQuestion(pos) + self.yesNoQuestion(pos) + self.canQuestion(pos) +
 	  self.didQuestion(pos) + self.eventQuestion(pos) + self.thanks(pos)
 end function
 
@@ -777,6 +886,22 @@ Parser.existsQuestion = function(pos)
 		for t in self.word(b.next, "there")
 			for np in self.nounPhrase(t.next)
 				results.push result(sentenceNode("exists", [b.tree, t.tree, np.tree]), np.next)
+			end for
+		end for
+	end for
+	return results
+end function
+
+// "There were five blocks to the left of the box (then)": a claim, for the
+// robot to check.
+Parser.thereStatement = function(pos)
+	results = []
+	for t in self.word(pos, "there")
+		for b in self.word(t.next, "be")
+			for np in self.nounPhrase(b.next)
+				for th in self.optionalWord(np.next, "then")
+					results.push result(sentenceNode("claim", [t.tree, b.tree, np.tree] + th.tree), th.next)
+				end for
 			end for
 		end for
 	end for
@@ -910,6 +1035,36 @@ Parser.yesNoQuestion = function(pos)
 	return results
 end function
 
+// "Can a pyramid be supported by a block?"  "Can a pyramid support a
+// pyramid?"  "Can the table pick up blocks?"  Questions about what could
+// be so, or what something could do.  ("Can you pick up...?" is a polite
+// command instead; see politeness.)
+Parser.canQuestion = function(pos)
+	results = []
+	for m in self.word(pos, "modal")
+		if m.tree.word != "can" and m.tree.word != "could" then continue
+		for np in self.nounPhrase(m.next)
+			for n in self.optionalNot(np.next)
+				for b in self.word(n.next, "be")
+					if b.tree.word != "be" then continue
+					for p in self.predicate(b.next)
+						claim = node("REL", n.tree + [b.tree, p.tree])
+						results.push result(sentenceNode("can", [m.tree, np.tree, claim]), p.next)
+					end for
+				end for
+				for v in self.verbPhrase(n.next)
+					claim = node("REL", n.tree + [v.tree])
+					results.push result(sentenceNode("can", [m.tree, np.tree, claim]), v.next)
+				end for
+			end for
+			for c in self.command(np.next)
+				results.push result(sentenceNode("canDo", [m.tree, np.tree, c.tree]), c.next)
+			end for
+		end for
+	end for
+	return results
+end function
+
 // "Did you pick up the red cube?"  "Had you touched any pyramid before
 // you put the green one on the little cube?"  Whether the robot did
 // something (at some time).
@@ -932,6 +1087,11 @@ end function
 // parts (a TIME node, or nothing).
 Parser.optionalTime = function(pos)
 	results = [result([], pos)]
+	// "Since we began" covers everything the robot remembers, so it adds no
+	// time constraint (meaning.ms looks only for TIME nodes).
+	for s in self.word(pos, "sinceStart")
+		results.push result([node("SINCE", [s.tree])], s.next)
+	end for
 	for w in self.word(pos, "timeWord")
 		for y in self.word(w.next, "you")
 			for r in self.pastAction(y.next)

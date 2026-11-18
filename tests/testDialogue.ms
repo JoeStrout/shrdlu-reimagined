@@ -111,14 +111,14 @@ turn "Is at least one of them narrower than the one which I told you to pick up?
 
 turn "Is it supported?", "Yes, by the table."
 
-turn "Can the table pick up blocks?", "No.",
-  {"gap": "questions about ability"}
+turn "Can the table pick up blocks?", "No."
 
-turn "Can a pyramid be supported by a block?", "Yes.",
-  {"gap": "questions about ability, and passives"}
+turn "Can a pyramid be supported by a block?", "Yes."
 
+// Winograd's robot had no rule for this; ours knows that nothing stays on
+// top of a pyramid (the next turn shows it).
 turn "Can a pyramid support a pyramid?", "I don't know.",
-  {"gap": "questions about ability"}
+  {"ours": "No. Nothing will stay on top of a pyramid.", "why": "our robot knows, and says why"}
 
 turn "Stack up two pyramids.", "I can't.",
   {"ours": "I can't. Nothing will stay on top of a pyramid.", "why": "our robot says why"}
@@ -131,9 +131,7 @@ turn "Do I own the box?", "No."
 
 turn "Do I own anything in the box?", "Yes, two things: the blue block and the blue pyramid."
 
-turn "Will you please stack up both of the red blocks and either a green cube or a pyramid?", "OK.",
-  {"gap": "noun phrases joined by ""and"" and ""either ... or""; ""both of""",
-   "icl": "x1 = the blocks [color red]; x2 = a cube [color green]; Stack x1, x2"}
+turn "Will you please stack up both of the red blocks and either a green cube or a pyramid?", "OK."
 
 turn "Which cube is sitting on the table?", "The large green one which supports the red pyramid."
 
@@ -182,7 +180,8 @@ turn "How many objects did you touch while you were doing it?", "Four of them."
 turn "What did the red cube support before you started to clean it off?", "The green pyramid."
 
 turn "There were five blocks to the left of the box then.", "No, only four of them: the red cube, two large green cubes and a large red block.",
-  {"gap": "statements about the past"}
+  {"ours": "No, only four of them: the red cube, two large green cubes and the large red one.",
+   "why": "there's only one large red block, so we say ""the"""}
 
 turn "Put the blue pyramid on the block in the box.", "OK."
 
@@ -190,9 +189,8 @@ turn "Put the blue pyramid on the block in the box.", "OK."
 // as" it.  Ours does have a size, and the large red block, the box, and
 // (with our inferred sizes) the green cube on the table count too.
 turn "Is there anything which is bigger than every pyramid but is not as wide as the thing that supports it?", "Yes, the blue block.",
-  {"ours": "Yes, four things: a large green cube, a large red block, the blue block and the box.",
-   "why": "things on the table count, since the table has a size",
-   "gap": """but"", and ""as wide as"""}
+  {"ours": "Yes, four things: a large green cube, the large red block, the blue block and the box.",
+   "why": "things on the table count, since the table has a size"}
 
 turn "Does a steeple", "Sorry, I don't know the word ""steeple""."
 
@@ -207,8 +205,7 @@ turn "Build one.", "OK.",
 
 turn "Call the biggest block ""superblock"".", "OK."
 
-turn "Have you picked superblock up since we began?", "Yes.",
-  {"gap": "present perfect, and ""since"""}
+turn "Have you picked superblock up since we began?", "Yes."
 
 turn "Why did you drop it?", "By ""it"", I assume you mean the superblock. I can't explain a nonexistent event.",
   {"gap": "announcing what a pronoun was taken to mean, and events that didn't happen"}

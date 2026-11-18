@@ -130,6 +130,7 @@ for w in ["block", "cube", "pyramid", "cylinder", "box", "table", "thing", "obje
 	noun w
 end for
 noun "one"
+noun "item", "object"
 
 // Pronouns.
 for w in ["it", "them", "they", "this", "that"]
@@ -166,6 +167,10 @@ comparative "bigger", "bigger"
 comparative "larger", "bigger"
 comparative "smaller", "smaller"
 comparative "littler", "smaller"
+// "As wide as ..." needs no "than".
+for pair in [["tall", "asTall"], ["wide", "asWide"], ["big", "asBig"], ["large", "asBig"]]
+	add "as " + pair[0] + " as", {"cat": "comparative", "pred": pair[1], "as": true}
+end for
 
 // Prepositions.  Several words can mean the same relation.
 for w in ["on", "onto", "on top of", "upon", "supported by"]
@@ -282,8 +287,15 @@ simple "you", "you"
 simple "i", "i"
 simple "to", "to"
 simple "and", "and"
+simple "or", "or"
+simple "either", "either"    // "either a green cube or a pyramid"
+simple "both", "both"        // "both of the red blocks", "both X and Y"
 simple "but", "but"
 simple "then", "then"
+// "Since we began": the whole conversation, which is all the robot remembers.
+for w in ["since we began", "since we started", "since the beginning"]
+	simple w, "sinceStart"
+end for
 simple "please", "polite"
 for w in ["will", "would", "can", "could"]
 	simple w, "modal"

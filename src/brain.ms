@@ -42,7 +42,8 @@ Brain = {}
 Brain.world = null
 
 // What we've been talking about, for "it", "them", "one", and "do that".
-Brain.focus = null      // {it: Thing, them: list of Things, noun: string, event: Goal}
+Brain.focus = null      // {it: Thing, them: list of Things, noun: string, event: Goal,
+                        //  time: the moment we last talked about, for "then"}
 
 // The planner that carries out commands.
 Brain.planner = null
@@ -61,11 +62,12 @@ Brain.busy = null       // vars being resolved right now (to catch loops)
 Brain.problem = null    // a reply explaining what went wrong, or null
 Brain.used = null       // while filtering: see Brain.filter
 Brain.bound = null      // var -> [thing], while testing [did e1] (see didWith)
+Brain.missing = false   // set when a test met "the X" with no X (see referInside)
 
 Brain.make = function(theWorld)
 	b = new Brain
 	b.world = theWorld
-	b.focus = {"it": null, "them": null, "noun": null, "event": null}
+	b.focus = {"it": null, "them": null, "noun": null, "event": null, "time": null}
 	b.planner = planner.Planner.make(theWorld)
 	b.ownership = []
 	return b
@@ -111,6 +113,7 @@ end function
 Brain.handle = function(statement)
 	if statement.hasIndex("verb") and statement.verb == "thank" then return "You're welcome!"
 	if statement.kind == "ask" then return self.answer(statement)
+	if statement.kind == "claim" then return self.checkClaim(statement)
 	if statement.kind == "command" then return self.command(statement)
 	if statement.kind == "declare" and statement.verb == "name" then return self.giveName(statement)
 	if statement.kind == "declare" and statement.verb == "own" then return self.learnOwnership(statement, true)
@@ -140,12 +143,78 @@ Brain.candidates = function(var)
 		return self.fail("(I went in circles: " + var + " is described in terms of itself.)")
 	end if
 	self.busy[var] = true
-	result = self.thingsForHead(d)
-	if result != null then result = self.filter(result, d.props)
+	if d.kind == "group" then
+		result = self.groupCandidates(d)
+	else
+		result = self.thingsForHead(d)
+		selfRef = null
+		if self.mentions(d.props, var) then selfRef = var
+		if result != null then result = self.filter(result, d.props, selfRef)
+	end if
 	self.busy.remove var
 	if self.problem then return null
-	self.cache[var] = result
+	// What depends on a thing being tested (see filter and didWith) may
+	// be different next time, so it isn't kept.
+	if not self.dependsOnBound(var) then self.cache[var] = result
 	return result
+end function
+
+// Does this ICL (constraints, or a line) mention the variable, directly or
+// through the descriptions it mentions?  ("Anything which is not as wide as
+// the thing that supports it" mentions itself: see Meaning.boundPronoun.)
+Brain.mentions = function(item, var, seen=null)
+	if seen == null then seen = {}
+	for v in icl.varsUsedIn(item)
+		if v == var then return true
+		if seen.hasIndex(v) then continue
+		seen[v] = true
+		line = self.prog.lookup(v)
+		if line and self.mentions(line, var, seen) then return true
+	end for
+	return false
+end function
+
+// Does this variable's meaning depend on a description that mentions
+// itself, so that it means something different for each thing tested?
+Brain.variesPerThing = function(var)
+	line = self.prog.lookup(var)
+	for v in self.prog.vars.indexes
+		item = self.prog.lookup(v)
+		if item.kind == "description" and self.mentions(item.props, v) and self.mentions(line, v) then return true
+	end for
+	return false
+end function
+
+// Does this variable's meaning depend on a thing being tried out right now?
+Brain.dependsOnBound = function(var)
+	if not self.bound then return false
+	if self.bound.hasIndex(var) then return true
+	line = self.prog.lookup(var)
+	if line == null then return false
+	for b in self.bound.indexes
+		if self.mentions(line, b) then return true
+	end for
+	return false
+end function
+
+// Joined noun phrases ("the red cube and a pyramid") could mean anything
+// any of their parts could mean.
+Brain.groupCandidates = function(g)
+	result = []
+	for member in g.members
+		things = self.candidates(member)
+		if things == null then return null
+		for t in things
+			if not containsRef(result, t) then result.push t
+		end for
+	end for
+	return result
+end function
+
+// Is this variable a group (noun phrases joined by "and" or "or")?
+Brain.isGroup = function(var)
+	item = self.prog.lookup(var)
+	return item != null and item.kind == "group"
 end function
 
 // The things a description's head word could mean, before any constraints.
@@ -200,12 +269,17 @@ end function
 // referInside), and afterward the survivors must all be related to the
 // same one of them (or, failing that, to the one we were just talking
 // about).
-Brain.filter = function(things, props)
+//
+// If the description mentions itself (selfRef is its variable), then while
+// each thing is tested, that variable means just that thing.
+Brain.filter = function(things, props, selfRef=null)
 	savedUsed = self.used
 	passed = []     // the things that meet every constraint...
 	usedBy = []     // ...and for each, inner "the" var -> what it was related to
+	if selfRef and self.bound == null then self.bound = {}
 	for t in things
 		self.used = {}
+		if selfRef then self.bound[selfRef] = [t]
 		ok = true
 		for c in props
 			if relations.superlatives.hasIndex(c.pred) then continue
@@ -214,6 +288,7 @@ Brain.filter = function(things, props)
 				break
 			end if
 		end for
+		if selfRef then self.bound.remove selfRef
 		if self.problem then return null
 		if ok then
 			passed.push t
@@ -276,6 +351,18 @@ end function
 Brain.referInside = function(var)
 	d = self.lookup(var)
 	if d == null then return null
+	// "The thing that supports it", where "it" is the thing being tested:
+	// whatever supports this thing, if anything.  (If nothing does, the
+	// relation just doesn't hold.)
+	if d.kind == "description" and isDefinite(d) and self.dependsOnBound(var) then
+		things = self.candidates(var)
+		if things == null then return null
+		if not things then
+			self.missing = true
+			return {"things": [], "quantity": "some", "n": 0}
+		end if
+		return {"things": things, "quantity": "all", "n": 0}
+	end if
 	if d.det != "the" or d.plural then return self.refer(var)
 	things = self.candidates(var)
 	if things == null then return null
@@ -286,7 +373,14 @@ end function
 // Does one thing meet one constraint?// Does one thing meet one constraint?
 Brain.test = function(thing, c)
 	pred = c.pred
-	if pred == "not" then return not self.test(thing, c.args[0])
+	if pred == "not" then
+		// "Not as wide as the thing that supports it" is no more true than
+		// "as wide as..." when nothing supports it.
+		self.missing = false
+		result = self.test(thing, c.args[0])
+		if self.missing then return false
+		return not result
+	end if
 	if pred == "or" then
 		for alternative in c.args
 			if self.test(thing, alternative) then return true
@@ -297,12 +391,17 @@ Brain.test = function(thing, c)
 	if pred == "owned" then return self.owns(thing) == true
 	if pred == "did" then return self.didWith(thing, c.args[0])
 	if (pred == "before" or pred == "after") and c.args.len == 2 then return self.testThen(thing, c)
+	if pred == "then" then
+		if self.focus.time == null then return self.fail("I'm not sure when you mean by ""then"".")
+		return self.testAt(thing, c.args[0], self.focus.time)
+	end if
 	if relations.unary.hasIndex(pred) then return relations.unary[pred](self.world, thing)
 	if relations.valued.hasIndex(pred) then return relations.valued[pred](self.world, thing, c.args[0])
 	if relations.binary.hasIndex(pred) then
 		if c.args.len != 1 or not icl.isVar(c.args[0]) then
 			return self.fail("([" + pred + "] needs one variable.)")
 		end if
+		if self.isGroup(c.args[0]) then return self.testGroup(thing, c)
 		ref = self.referInside(c.args[0])
 		if ref == null then return false
 		related = @relations.binary[pred]
@@ -316,6 +415,20 @@ Brain.test = function(thing, c)
 		return self.quantityOk(ref, count)
 	end if
 	return self.fail("I don't know what """ + pred + """ means.")
+end function
+
+// A relation to joined noun phrases: "supports the red cube and a pyramid"
+// means it supports the red cube and supports a pyramid; with "or", either
+// one will do.
+Brain.testGroup = function(thing, c)
+	g = self.lookup(c.args[0])
+	for member in g.members
+		ok = self.test(thing, icl.constraint(c.pred, [member]))
+		if self.problem then return false
+		if ok and g.join == "or" then return true
+		if not ok and g.join == "and" then return false
+	end for
+	return g.join == "and"
 end function
 
 // [did e1]: is this thing one the robot did e1 to?  ("The objects you
@@ -351,10 +464,16 @@ Brain.testThen = function(thing, c)
 		if icl.isVar(a) and a[0] == "x" then self.candidates a
 	end for
 	if c.pred == "before" then time = g.start else time = g.finish
+	self.focus.time = time      // for "then", later
+	return self.testAt(thing, inner, time)
+end function
+
+// Was the constraint true at that time?
+Brain.testAt = function(thing, c, time)
 	w = self.world
 	now = w.snapshot
 	w.restore w.snapshotAt(time)
-	result = self.test(thing, inner)
+	result = self.test(thing, c)
 	w.restore now
 	return result
 end function
@@ -369,7 +488,8 @@ end function
 Brain.refer = function(var)
 	d = self.lookup(var)
 	if d == null then return null
-	if d.det == null or d.det == "the" then
+	if d.kind == "group" then return self.fail("(I can only use """ + d.join + """ in commands and relations so far.)")
+	if isDefinite(d) then
 		things = self.definite(var)
 		if things == null then return null
 		return {"things": things, "quantity": "all", "n": 0}
@@ -381,6 +501,12 @@ Brain.refer = function(var)
 	if d.det == "no" then quantity = "none"
 	if d.det == "number" or d.det == "at-least" then quantity = "at-least"
 	return {"things": things, "quantity": quantity, "n": d.n}
+end function
+
+// Does this description mean particular things we both know about: "the
+// X", "both Xs", "it", a name?
+isDefinite = function(d)
+	return d.det == null or d.det == "the" or d.det == "both"
 end function
 
 // Given a reference and how many of its things met some condition, does
@@ -404,6 +530,10 @@ Brain.definite = function(var)
 			return self.fail("I don't see anything like that.")
 		end if
 		return self.fail("I don't see any " + speech.descriptionPhrase(d, true) + ".")
+	end if
+	// "Both of the red blocks" says there are two.
+	if d.det == "both" and things.len != 2 then
+		return self.fail("I see " + speech.numberWord(things.len) + " " + speech.descriptionPhrase(d, things.len != 1) + ", not two.")
 	end if
 	if things.len > 1 and not d.plural then
 		// "The pyramid", when there are several, can still mean the one
@@ -435,7 +565,7 @@ end function
 // Remember what we just talked about, for "it", "them", and "one".
 Brain.noteFocus = function(var, things)
 	d = self.prog.lookup(var)
-	if d and relations.nouns.indexOf(d.head) != null then self.focus.noun = d.head
+	if d and d.kind == "description" and relations.nouns.indexOf(d.head) != null then self.focus.noun = d.head
 	if things.len == 1 then self.focus.it = things[0]
 	if things.len > 1 then self.focus.them = things[:]
 end function
@@ -452,6 +582,7 @@ Brain.answer = function(q)
 	if q.q == "which" then return self.answerWhich(q.target)
 	if q.q == "attribute" then return self.answerAttribute(q.target, q.attr)
 	if q.q == "yes-no" then return self.answerYesNo(q.target, q.claim)
+	if q.q == "can" then return self.answerCan(q)
 	return self.fail("(I don't know that kind of question.)")
 end function
 
@@ -570,6 +701,76 @@ Brain.answerYesNo = function(var, claim)
 	return "Yes."
 end function
 
+// "Can a pyramid be supported by a block?"  Yes, if one is now.  "Can a
+// pyramid support a pyramid?"  No, since nothing stays on a pyramid.
+// Otherwise we don't know.  ("Can the table pick up blocks?"  No: only
+// the robot does things.)
+Brain.answerCan = function(q)
+	if q.target[0] == "e" then
+		e = self.lookup(q.target)
+		if e == null then return null
+		for c in e.props
+			if c.pred == "by" then return "No."
+		end for
+		return self.fail("(I can only answer that about other things, so far.)")
+	end if
+	if q.claim == null then return self.fail("(Ask can " + q.target + " needs a claim.)")
+	things = self.candidates(q.target)
+	if things == null then return null
+	for t in things
+		if self.test(t, q.claim) then return "Yes."
+		if self.problem then return null
+	end for
+	if self.cantBe(q.target, q.claim) then return "No. " + planner.pyramidRule
+	return "I don't know."
+end function
+
+// Is this against the way things work?  For now we know one rule: nothing
+// stays on top of a pyramid.
+Brain.cantBe = function(var, claim)
+	if claim.pred == "supports" then
+		pyramids = self.candidates(var)
+	else if claim.pred == "on" or claim.pred == "above" then
+		pyramids = self.candidates(claim.args[0])
+	else
+		return false
+	end if
+	if not pyramids then return false
+	for t in pyramids
+		if t.shape != "pyramid" then return false
+	end for
+	return true
+end function
+
+//----------------------------------------------------------------------
+// Claims: things the user says are so
+//----------------------------------------------------------------------
+
+// "There were five blocks to the left of the box then."  We check, and say
+// so if it's wrong.  A number in a claim means just that many.
+Brain.checkClaim = function(c)
+	if c.q != "exists" then return self.fail("(I can only check claims that there are things, so far.)")
+	things = self.candidates(c.target)
+	if things == null then return null
+	d = self.lookup(c.target)
+	if d.det == "number" then
+		right = things.len == d.n
+	else if d.det == "at-least" then
+		right = things.len >= d.n
+	else
+		right = things.len > 0
+	end if
+	if right then
+		self.noteFocus c.target, things
+		return "That's right."
+	end if
+	if not things then return "No, none."
+	self.noteFocus c.target, things
+	prefix = "No, "
+	if d.hasIndex("n") and d.n and things.len < d.n then prefix = "No, only "
+	return prefix + self.countedNames(c.target, things) + "."
+end function
+
 //----------------------------------------------------------------------
 // Commands
 //----------------------------------------------------------------------
@@ -659,15 +860,25 @@ Brain.choose = function(var)
 	if self.chosen.hasIndex(var) then return self.chosen[var]
 	d = self.lookup(var)
 	if d == null then return null
-	if d.det == null or d.det == "the" then
+	if d.kind == "group" then
+		things = self.chooseFromGroup(d)
+	else if isDefinite(d) then
 		things = self.definite(var)
 	else
 		things = self.candidates(var)
 		if things == null then return null
+		// "A block" in a command means one we haven't already picked for
+		// something else in this sentence ("stack up the red cube and a
+		// block" won't pick the red cube again).
+		fitting = things
+		things = self.notChosenYet(fitting)
 		want = things.len
 		if d.det == "a" or d.det == "any" or d.det == "which" then want = 1
 		if d.det == "number" or d.det == "at-least" then want = d.n
 		if things.len == 0 or things.len < want then
+			if fitting.len > things.len and want == 1 then
+				return self.fail("I don't see another " + speech.descriptionPhrase(d, false) + ".")
+			end if
 			return self.fail("I don't see enough " + speech.descriptionPhrase(d, true) + ".")
 		end if
 		things = self.leastTrouble(things)[:want]
@@ -675,6 +886,49 @@ Brain.choose = function(var)
 	if things == null then return null
 	self.chosen[var] = things
 	return things
+end function
+
+// For "X and Y", what each part means; for "X or Y", the first one we can
+// find.
+Brain.chooseFromGroup = function(g)
+	if g.join == "and" then
+		result = []
+		for member in g.members
+			things = self.choose(member)
+			if things == null then return null
+			for t in things
+				if not containsRef(result, t) then result.push t
+			end for
+		end for
+		return result
+	end if
+	// "Either a green cube or a pyramid": try each in turn, and if none
+	// works, give the complaint about the first.
+	firstProblem = null
+	for member in g.members
+		things = self.choose(member)
+		if things != null then
+			self.problem = null
+			return things
+		end if
+		if firstProblem == null then firstProblem = self.problem
+		self.problem = null
+	end for
+	return self.fail(firstProblem)
+end function
+
+// Of these things, the ones not yet picked for any other part of this
+// sentence.
+Brain.notChosenYet = function(things)
+	result = []
+	for t in things
+		taken = false
+		for picked in self.chosen.values
+			if containsRef(picked, t) then taken = true
+		end for
+		if not taken then result.push t
+	end for
+	return result
 end function
 
 // Sort things by how much trouble they'd be to pick up.
@@ -773,6 +1027,7 @@ Brain.matchingGoals = function(var)
 	// The other events its time constraints refer to.
 	others = []
 	for c in e.props
+		if c.pred == "by" then return []     // only the robot does things
 		other = self.findGoal(c.args[0])
 		if other == null then return null
 		others.push other
@@ -965,6 +1220,13 @@ Brain.assumption = function(r, chosen, other)
 		if phrase == null or p.words.len > phrase.words.len then phrase = p
 	end for
 	if phrase == null then return null
+	// "The thing that supports it", where "it" is whatever is being
+	// tested, isn't one thing we could name.
+	savedProg = self.prog
+	self.prog = r.programs[chosen]
+	varies = self.variesPerThing(phrase.var)
+	self.prog = savedProg
+	if varies then return null
 	things = self.check(r.programs[chosen], phrase.var).referents[phrase.var]
 	if not things then return null
 	return "By """ + phrase.words + """, I assume you mean " + speech.specificNamesFor(self.world, things) + "."
@@ -1087,7 +1349,7 @@ Brain.learnOwnership = function(statement, owned)
 	var = statement.args[0]
 	d = self.lookup(var)
 	if d == null then return null
-	if d.det == null or d.det == "the" then
+	if isDefinite(d) then
 		things = self.definite(var)
 		if things == null then return null
 		self.noteFocus var, things

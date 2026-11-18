@@ -225,6 +225,16 @@ end function
 binary.narrower = function(theWorld, a, b)
 	return a.breadth < b.breadth - eps
 end function
+// "As tall as" means at least as tall: the same height or taller.
+binary.asTall = function(theWorld, a, b)
+	return a.height >= b.height - eps
+end function
+binary.asWide = function(theWorld, a, b)
+	return a.breadth >= b.breadth - eps
+end function
+binary.asBig = function(theWorld, a, b)
+	return a.volume >= b.volume - eps
+end function
 binary.bigger = function(theWorld, a, b)
 	return a.volume > b.volume + eps
 end function

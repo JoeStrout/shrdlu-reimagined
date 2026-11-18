@@ -151,7 +151,7 @@ Verbs used in questions about the world ("contain", "support", "sit on") map to 
 
 These are in Winograd's dialogue but come after the first round:
 
-- **Noun-phrase conjunction:** "both of the red blocks and either a green cube or a pyramid".
+- **Noun-phrase conjunction:** "both of the red blocks and either a green cube or a pyramid". *(Done: `Parser.nounPhrases`, used for command arguments and the objects of relation verbs. Joined phrases become ICL groups.)*
 - **Ability questions:** "Can a pyramid support a pyramid?" (ICL for these isn't designed yet.)
 - **Definitions, names, and ownership:** "A 'steeple' is a stack which contains…", "Call the biggest block 'superblock'", "I own blocks which are not red…", "The blue pyramid is mine."
 - **Questions about the past with tense:** "Had you touched any pyramid before you put the green one on the little cube?", "What did the red cube support before you started to clean it off?"

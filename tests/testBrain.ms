@@ -185,9 +185,15 @@ expect fresh, "x1 = them; Ask count x1", "I don't know what you mean by ""them""
 expect fresh, "x1 = a block [sparkly]; Ask exists x1", "I don't know what ""sparkly"" means."
 expect fresh, "x1 = a widget; Ask exists x1", "Sorry, I don't know the word ""widget""."
 expect fresh, "x1 = a block [on x2]; x2 = a pyramid [under x1]; Ask exists x1", "I don't know what ""under"" means."
-expect fresh, "x1 = a block [on x2]; x2 = a block [supports x1]; Ask exists x1",
-  "(I went in circles: x1 is described in terms of itself.)"
 expect fresh, "x1 = it; e1 = event PickUp x1; Ask why e1", "I don't know what you mean by ""it""."
+// A description may mention itself: "a block on a block that supports it".
+// While each block is tested, x1 means that block.
+expect fresh, "x1 = a block [on x2]; x2 = a block [supports x1]; Ask exists x1", "Yes, the small green cube."
+expect fresh, "x1 = a block [on x1]; Ask exists x1", "No."
+// Everything narrower than what it's on.  Not the green pyramid (as wide
+// as the red cube), and not the table, which nothing supports.
+expect fresh, "x1 = a thing [not [asWide x2]]; x2 = the thing [supports x1]; Ask which x1",
+  "The red cube, the large green cube, the red pyramid, the large red block, the small green cube, the blue block, the box and the blue pyramid."
 expect fresh, "x1 = a block; Juggle x1", "Sorry, I don't know how to juggle."
 expect fresh, "x1 = a block [on x2", "(I couldn't read that ICL: line 1: missing ])"
 
@@ -335,6 +341,47 @@ hear b, "Put the red pyramid on the table.", "OK."
 hear b, "Do I own the large green cube?", "Yes."
 hear b, "I don't own the blue block.", "I understand."
 hear b, "Do I own anything which is not in the box?", "Yes, two things: the large green cube and the small green cube."
+
+// Joined noun phrases.  "Or" takes the first that can be found; "a" won't
+// pick something already picked in the same sentence; "both" insists on two.
+w = newWorld
+b = brain.Brain.make(w)
+hear b, "Is there a block which supports a pyramid and a block?", "No."
+expect b, "x1 = a block [supports x4]; x2 = a block; x3 = a pyramid; x4 = x2 or x3; Ask exists x1",
+  "Yes, three of them: the red cube, the large green cube and the large red one."
+hear b, "Pick up the blue cube or the red pyramid.", "OK."
+check refEquals(w.hand.holding, w.thing("p2")), "picked up the red pyramid"
+hear b, "Pick up the blue cube or the green cube in the box.", "I don't see any blue cubes."
+hear b, "Pick up both of the pyramids.", "I see three pyramids, not two."
+hear b, "Stack up both of the red blocks and either a green cube or a pyramid.", "OK."
+check w.thing("b1").supporters.len == 1 and w.thing("b1").supporters[0].color == "green", "the red cube is on a green cube"
+check refEquals(w.thing("b2").supporters[0], w.thing("b3")) or refEquals(w.thing("b4").supporters[0], w.thing("b3")),
+  "the green cube is on the large red block"
+hear b, "Stack up the red cube and a red block.", "OK."
+hear b, "Stack up the red cube and a red cube.", "I don't see another red cube."
+
+// Ability: yes if it's so now, no if it's against the rules, and otherwise
+// we don't know.  Only the robot does things.
+w = newWorld
+b = brain.Brain.make(w)
+hear b, "Can a pyramid be supported by a block?", "Yes."
+hear b, "Can a block be on a pyramid?", "No. Nothing will stay on top of a pyramid."
+hear b, "Can a pyramid support a block?", "No. Nothing will stay on top of a pyramid."
+hear b, "Can a block be in the box?", "I don't know."
+hear b, "Can the box pick up a pyramid?", "No."
+
+// Claims.  A number means just that many.  "Then" is the time we last
+// talked about.
+w = newWorld
+b = brain.Brain.make(w)
+hear b, "There are two red blocks.", "That's right."
+hear b, "There are three green blocks.", "No, only two of them: the large green cube and the small green cube."
+hear b, "There is a block in the box.", "No, none."
+hear b, "There was a pyramid on the box then.", "I'm not sure when you mean by ""then""."
+hear b, "Put the small green cube in the box.", "OK."
+hear b, "What did the large red block support before you put the small green cube in the box?", "The small green cube."
+hear b, "There was a block on the large red block then.", "That's right."
+hear b, "There is a block on the large red block.", "No, none."
 
 print checks + " checks, " + failures + " failures."
 exit (failures > 0)

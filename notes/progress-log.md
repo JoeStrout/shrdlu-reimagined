@@ -275,3 +275,54 @@ Both pass now: 29 turns as Winograd's (or better), 16 known gaps.
   - "Thing" now includes the table, so "What is the small green cube on?" is "The table." rather than "Nothing.". "Object" still means only what's on the table. Left/right/behind/in front never apply to the table.
 
 Noticed: "What did the box contain before you put the large red block in it?" gets "I don't remember doing that." That's because "it" means the block (the focus), not the box mentioned earlier in the same sentence. Pronouns pointing back within one sentence are still to do.
+
+### 2026-11-18: "item", and turn 17 (joined noun phrases)
+
+Turn 17 passes now, and so does turn 18, which depends on it: 30 turns as Winograd's (or better), 15 known gaps.
+
+- **"Item"** means the same as "object".
+- **Groups in ICL.** Noun phrases joined by "and" or "or" are a new kind of line, `x4 = x2 or x3`, which can be joined again (`x5 = x1 and x4`). See design note §2.2 and §2.5.
+- **"Both"** is a determiner: "the", with a check that there are two ("I see three pyramids, not two."). The parser takes "both", "both the", "both of the" and "both of them".
+- **Parser.** "X and Y", "X or Y", "both X and Y" and "either X or Y" are allowed where a command wants a thing and after a relation verb ("supports a pyramid and a block"). Lists with commas ("X, Y and Z") aren't, because the commas are gone by the time the parser sees the words. Two noun phrases in a row would otherwise be read as a list far too often ("Pick up the block the box").
+- **Brain.**
+  - In a command, "or" takes the first member the robot can find.
+  - "A" won't pick something already picked in the same command. When that's the only kind there is, the robot says "I don't see another red cube.".
+  - In the dialogue, "either a green cube or a pyramid" picks the green cube with nothing on it, then clears the green pyramid off the little red cube, as Winograd's robot did.
+
+Noted for later (from the user): after "I don't understand which green cube you mean.", a reply like "The one supporting a pyramid." should settle the question and carry out the *previous* command. That's natural in conversation, though perhaps beyond what SHRDLU did.
+
+### 2026-11-18: turn 35 ("…but is not as wide as the thing that supports it")
+
+The turn now runs for real, with our better answer (see the turn's note): 31 turns as Winograd's (or better), 14 known gaps.
+
+- **"As tall/wide/big as"** are comparisons with no "than": `[asTall]`, `[asWide]`, `[asBig]`, meaning "at least as".
+- **Joined relative clauses.** After a relative clause, another may follow with "and" or "but" ("which is bigger than every pyramid but is not as wide as…"). Each becomes its own constraint.
+- **"It" meaning the thing described.** Inside a clause about something else, "it" can mean the outer description: `x3 = the thing [supports x1]` inside x1. The brain tries each candidate with x1 bound to it. Descriptions that mention themselves used to be refused as "going in circles"; now they mean something.
+- **A "the" that finds nothing** for a particular candidate makes the constraint false, and its negation false too. So the table, which nothing supports, isn't "not as wide as the thing that supports it".
+- The robot doesn't announce "By 'the thing that supports it', I assume you mean…", since that phrase means a different thing for each candidate.
+
+### 2026-11-18: turn 33 (a claim about the past)
+
+"There were five blocks to the left of the box then." gets "No, only four of them: …", with our usual "the large red one". That makes 32 turns as Winograd's (or better), 13 known gaps.
+
+- **Claims.** A new kind of statement: `Claim exists x1`. The robot checks it and answers "That's right.", "No, only N of them: …" or "No, none.". A number in a claim means exactly that many.
+- **"Then"** is `[then c]`: c held at the moment we last talked about. `Brain.testThen` remembers that moment in `focus.time`. With no such moment, the robot says "I'm not sure when you mean by "then".".
+- The parser takes "There is/are/was/were NP [then]".
+
+### 2026-11-18: turns 9–11 (questions about ability)
+
+All three pass: 35 turns as Winograd's (or better), 10 known gaps.
+
+- **ICL.** `Ask can x1 [claim]` asks whether something could be so. `Ask can e1` asks whether something could be done, and the event's `[by x1]` says by what.
+- **Answers.**
+  - "Yes." if it's so right now (turn 10).
+  - "No. Nothing will stay on top of a pyramid." if it breaks that rule. In turn 11 that's better than Winograd's "I don't know.", so it's recorded as ours. The rule's wording is shared with the planner as `planner.pyramidRule`.
+  - "I don't know." otherwise.
+  - "No." for anything but the robot doing something (turn 9).
+- **Parser.** "Can/could NP [not] be <predicate>", "Can NP <verb phrase>", and "Can NP <command>". "Can you…?" stays a polite command.
+- Not yet: "I don't know." for "Can a block be in the box?" is honest but weak. The robot could try the planner on a copy of the world.
+
+### 2026-11-18: turn 41 ("since we began")
+
+"Have you picked superblock up since we began?" gets "Yes.": 36 turns as Winograd's (or better), 9 known gaps. "Since we began" (also "since we started" and "since the beginning") means the whole conversation, which is everything the robot remembers, so it adds no time constraint and needs nothing new in ICL. The present perfect ("have you picked…") already worked.
+

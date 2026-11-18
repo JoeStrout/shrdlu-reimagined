@@ -226,7 +226,7 @@ The 2008 ICL was **text** (`obj1 = objspec( qty=1, color=red, called=block )`), 
 ```
 Description
   var      "x1"                // a variable name, for cross-references and printing
-  det      "a" / "the" / "any" / "every" / "no" / "which" / "how-many" / 2 / …
+  det      "a" / "the" / "both" / "any" / "every" / "no" / "which" / "how-many" / 2 / …
   plural   true / false
   head     "block" / "pyramid" / "cube" / "thing" / "one" / "it" / "box" / "table" / name
   props    list of Constraints  // adjectives and relative clauses
@@ -245,6 +245,8 @@ Description
 {pred: "or",  args: [<Constraint>, …]}                  // "red or green"
 ```
 
+**Groups**: noun phrases joined by "and" or "or". A group has a variable like a description, so it can go anywhere a description's variable can: `{kind:"group", var:"x4", join:"or", members:["x2", "x3"]}`. A member may itself be a group, so "both of the red blocks and either a green cube or a pyramid" is `x5 = x1 and x4`, with `x4 = x2 or x3`. ("Or" between constraints on one noun, as in "red or green", stays an `[or …]` constraint.)
+
 One uniform shape (rather than separate kinds for relations, comparisons, and logic) means the brain can test a constraint by looking up its predicate in a single table of functions.
 
 **Statements**: what the user wants done or known. One sentence may produce several (as in "Find a block which… and put it into the box").
@@ -258,7 +260,8 @@ One uniform shape (rather than separate kinds for relations, comparisons, and lo
 | count | "How many blocks are not in the box?" | `{kind:"ask", q:"count", target:"x1"}` |
 | attribute | "What color is it?" | `{kind:"ask", q:"attribute", attr:"color", target:"x1"}` |
 | history | "Why did you…?", "When…?", "How…?" | `{kind:"ask", q:"why", target:"e1"}` |
-| ability | "Can the table pick up blocks?" | not yet designed |
+| ability | "Can a pyramid be supported by a block?", "Can the table pick up blocks?" | `{kind:"ask", q:"can", target:"x1", claim:<Constraint>}`, or `{q:"can", target:"e1"}` for an event, whose `[by x1]` says who would do it |
+| claim | "There were five blocks to the left of the box then." | `{kind:"claim", q:"exists", target:"x1"}`: the same parts as a question, but the user says it's so and the robot checks |
 | declaration | "Call it superblock.", "I own…", "A steeple is…" | `{kind:"declare", verb:"name", args:["x1", "superblock"]}`, and likewise `own`, `dontOwn` and `define` |
 
 A yes/no question is a target plus a constraint, the same pattern a description uses, so "Does x1 support x2?" is `{target:"x1", claim:{pred:"supports", args:["x2"]}}`. An **event** (`{kind:"event", var, verb, args, props}`) is a pattern: a verb with argument descriptions, plus optional time constraints (`[before e2]`, `[after e2]`, `[while e2]`), matched against the event history.
@@ -343,18 +346,26 @@ The **focus history** (recent descriptions, sets, and objects) is part of the br
 
 **Descriptions:** `var = [determiner] noun constraint…`
 
-- Determiners: `a` (`an` is accepted), `the`, `any`, `every`, `no`, `which`, `how-many`, a number (`2 cubes`), or `at-least-N`.
+- Determiners: `a` (`an` is accepted), `the`, `both`, `any`, `every`, `no`, `which`, `how-many`, a number (`2 cubes`), or `at-least-N`. `both` is "the", plus a check that there are just two.
 - The noun is written as English, singular or plural (`block`, `blocks`, `boxes`). The reader stores the singular form plus a plural flag, and the printer puts the plural back.
 - Pronouns (`it`, `that`, `this`, `them`, `they`) take no determiner, except for partitives: `at-least-1 of them`.
 - A word with no determiner that isn't a pronoun is a **name** (`x2 = superblock`), and is left as written.
 
 **Constraints:** `[predicate arg…]`. Arguments are separated by spaces (commas are allowed). Each argument is a variable, a word, a number, or a nested constraint: `[color red]`, `[on x2]`, `[held]`, `[not [in x4]]`, `[or [on x2] [in x3]]`. The shorthand `[color red|green]` means `[or [color red] [color green]]`, and the printer uses the shorthand whenever it can.
 
+**Groups:** `var = var and var…` or `var = var or var…`, as in `x4 = x2 or x3`. One group uses one word; to mix them, give the inner group its own variable. What a group means depends on where it is:
+
+- As a command's argument, "and" means all the members' things, and "or" means the first member the robot can find. "A" never picks something already picked elsewhere in the same command, so "stack up the red cube and a red block" means two different blocks.
+- As a constraint's argument, `[supports x4]` with `x4 = x2 and x3` means supporting x2 and supporting x3; with "or", either will do.
+- As a question's target, it isn't handled yet.
+
 **Events:** `var = event Verb arg, arg… constraint…`, as in `e2 = event PickUp x2 [while e1]`.
 
 **Commands:** `Verb arg, arg…`, where the verb is capitalized: `PickUp x1`, `PutOn x1, x2`, `ClearOff x1`, `Stack x1, x2`, `Find x1`. In the data, verbs are lower camel case (`putOn`).
 
 **Events in descriptions, and the past.** `[did e1]` on a description means "a thing the robot did e1 to", where e1's argument is that description itself: "How many objects did you touch while you were doing it?" is `x1 = how-many objects [did e1]`, `e1 = event Touch x1 [while e2]`, `e2 = event Do`. A time around a constraint, `[before e1 [on x2]]`, means the constraint held just before e1 began (`[after e1 …]`: just after it ended). The brain puts the world back as it was then (`World.snapshotAt`, `World.restore`), tests, and restores the present. Descriptions inside keep their present meaning.
+
+**Descriptions that mention themselves.** In "anything which is not as wide as the thing that supports it", "it" is the anything, so the parser writes `x1 = any thing [not [asWide x3]]`, `x3 = the thing [supports x1]` (`Meaning.boundPronoun`: "it" means a description two levels out, never the one its own clause is about). While the brain tests each candidate for x1, x1 means just that candidate (`Brain.filter`, using `Brain.bound`), and nothing that depends on it is cached. A "the" that depends on it may find nothing ("the thing that supports" the table); then the constraint is false, and so is its `[not …]`.
 
 **Declarations** look like commands but teach rather than act: `Define steeple, x1`, `Name x1, superblock`, `Own x1`, `DontOwn x1`. Ownership isn't stored on the things. The brain keeps a list of what it was told. For one thing ("the blue pyramid"), that's the thing; for a kind ("any blocks [not [color red]]"), it's the description, checked against the world whenever ownership matters. The newest entry that fits a thing decides, and if none does, the robot doesn't know (`[owned]` is false, and "Do I own the table?" gets "I don't know.").
 
@@ -364,6 +375,12 @@ The **focus history** (recent descriptions, sets, and objects) is part of the br
 - `Ask color x1`, or any other attribute name, for an attribute question.
 - `Ask yes-no x1 [narrower x2]`: the claim is a single constraint on the target.
 - `Ask why e1`, `Ask how e1`, `Ask when e1`: the target is an event.
+
+**Ability:** `Ask can x1 [on x2]` asks whether that could be so. The answer is "Yes." if it's so now for some x1, "No." with a reason if it's against the rules (so far one rule: nothing stays on top of a pyramid), and otherwise "I don't know.". `Ask can e1` with `e1 = event PickUp x2 [by x1]` asks whether x1 could do it. Only the robot does things, so that's "No.". ("Can you…?" is a polite command, not a question.)
+
+**Claims:** `Claim exists x1`, for "There is/are/were…". The robot checks and answers "That's right.", or "No, only four of them: …", or "No, none.". A number in a claim means exactly that many. Only `exists` claims are handled so far.
+
+**Then:** `[then c]` means c held at the moment last talked about. That's the time from the most recent `[before e1 …]` or `[after e1 …]`, so after "What did the red cube support before you started to clean it off?", "then" means just before that. The parser puts `then` around each of the description's constraints.
 
 The reader is strict about structure but reports problems instead of stopping: each bad line produces a message like `line 3: missing ]`, and the rest of the program is still read.
 

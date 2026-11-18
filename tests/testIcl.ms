@@ -161,6 +161,31 @@ check p.format == expected, "built in code; got:" + nl + p.format
 check icl.read(p.format).format == p.format, "and it reads back"
 check p.newVar("e") == "e1", "event variables are numbered separately"
 
+// "Stack up both of the red blocks and either a green cube or a pyramid."
+// Joined noun phrases are groups, which can be joined again.
+p = roundTrip([
+  "x1 = both blocks [color red]",
+  "x2 = a cube [color green]",
+  "x3 = a pyramid",
+  "x4 = x2 or x3",
+  "x5 = x1 and x4",
+  "Stack x5"].join(nl), "stack up both red blocks and either a green cube or a pyramid")
+x4 = p.lookup("x4")
+check x4.kind == "group" and x4.join == "or" and x4.members == ["x2", "x3"], "x4 is x2 or x3"
+check p.lookup("x1").det == "both" and p.lookup("x1").plural, "both blocks"
+check p.statements.len == 1, "groups aren't statements"
+roundTrip "x1 = it" + nl + "x2 = the box" + nl + "x3 = a pyramid" + nl + "x4 = x1 and x2 and x3" + nl + "Stack x4", "three things joined"
+
+// "There were five blocks to the left of the box then."  A claim to check.
+p = roundTrip("x1 = 5 blocks [then [leftOf x2]]" + nl + "x2 = the box" + nl + "Claim exists x1", "a claim about then")
+check p.statements[0].kind == "claim" and p.statements[0].q == "exists", "Claim exists x1 is a claim"
+
+// Questions about ability: what could be so, and what could be done (and
+// by what).
+roundTrip "x1 = a pyramid" + nl + "x2 = a block" + nl + "Ask can x1 [on x2]", "can a pyramid be supported by a block"
+p = roundTrip("x1 = the table" + nl + "x2 = any blocks" + nl + "e1 = event PickUp x2 [by x1]" + nl + "Ask can e1", "can the table pick up blocks")
+check p.statements[0].q == "can" and p.statements[0].claim == null, "Ask can e1 has no claim"
+
 //----------------------------------------------------------------------
 // Errors
 //----------------------------------------------------------------------
@@ -187,6 +212,12 @@ e = errorsFor("x1 = a block [not [on x1] [in x1]]")
 check e.len == 1 and e[0].indexOf("wrong number") != null, "not with two parts: " + e
 e = errorsFor("x1 = the block red")
 check e.len == 1 and e[0].indexOf("expected [") != null, "a stray word: " + e
+e = errorsFor("x1 = it" + nl + "x2 = the box" + nl + "x3 = x1 and x2 or x1")
+check e.len == 1 and e[0].indexOf("mix") != null, "and with or: " + e
+e = errorsFor("x1 = it" + nl + "x2 = x1 and red")
+check e.len == 1 and e[0].indexOf("variable") != null, "a group of a word: " + e
+e = errorsFor("x1 = it" + nl + "x2 = x1 and x7")
+check e.len == 1 and e[0].indexOf("x7") != null, "a group with an undefined variable: " + e
 e = errorsFor("pick up x1")
 check e.len == 1 and e[0].indexOf("line 1") != null, "lowercase verb: " + e
 
