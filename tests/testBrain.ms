@@ -331,7 +331,8 @@ hear b, "How did you empty the box?", "By getting rid of the blue block, then ge
 // said last counts most.
 w = newWorld
 b = brain.Brain.make(w)
-hear b, "Do I own the box?", "I don't know."
+// (Nothing is owned until the user says so.)
+hear b, "Do I own the box?", "No."
 hear b, "The blue pyramid is mine.", "I understand."
 hear b, "Is the blue pyramid mine?", "Yes."
 hear b, "I own blocks which are not red, but I don't own anything which supports a pyramid.", "I understand."

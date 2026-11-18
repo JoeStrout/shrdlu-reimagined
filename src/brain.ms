@@ -55,8 +55,13 @@ Brain.planner = null
 // The object the user last clicked on, for "this" and "that".
 Brain.selected = null
 
-// What the user has told us they own (see Brain.owns).
-Brain.ownership = null
+// What the user has told us they own, like, and so on (see Brain.feels).
+Brain.attitudes = null   // verb -> what the user told us (see learnAttitude)
+// The other way around: constraint -> verb ("owned" -> "own").
+Brain.attitudeFor = {}
+for kv in icl.attitudes
+	Brain.attitudeFor[kv.value] = kv.key
+end for
 
 // Words the user has taught us: word -> {prog, var}, the description the
 // word means and the program it's in.  (See Brain.define.)
@@ -77,7 +82,11 @@ Brain.itMeant = null    // what "it" turned out to mean (see Brain.itNote)
 Brain.failed = false    // did the last reply say what went wrong?
 Brain.question = null   // a question we asked the user: {understanding, choices}
 Brain.lastUnderstanding = null  // the understanding we last acted on (see hear)
+Brain.lastActed = null  // ...and which reading: {understanding, index}, for "What about...?"
 Brain.moving = []       // in a command, the variables for the things to be moved
+Brain.commandKind = null  // in a command, the kind of goal it sets
+Brain.mentioned = []    // the things this sentence has referred to so far (for "other")
+Brain.lastMentioned = []  // ...and the last sentence
 Brain.unclear = null    // the variable we just said we didn't understand ("which pyramid?")
 Brain.pending = null    // what to finish if the user tells us which: {understanding, index, var}
 
@@ -87,7 +96,7 @@ Brain.make = function(theWorld)
 	b.focus = {"it": null, "them": null, "noun": null, "nounAdjectives": [], "event": null, "time": null,
 	  "itFrom": null, "built": null}
 	b.planner = planner.Planner.make(theWorld)
-	b.ownership = []
+	b.attitudes = {}
 	b.definitions = {}
 	b.expanding = {}
 	return b
@@ -115,6 +124,8 @@ Brain.respond = function(prog)
 	self.itMeant = null
 	self.failed = false
 	self.unclear = null
+	if self.mentioned then self.lastMentioned = self.mentioned
+	self.mentioned = []
 	replies = []
 	for statement in prog.statements
 		// (Each statement may change the world, so candidates are worked
@@ -157,8 +168,7 @@ Brain.handle = function(statement)
 	if statement.kind == "declare" and statement.verb == "name" then return self.giveName(statement)
 	if statement.kind == "declare" and statement.verb == "define" then return self.define(statement)
 	if statement.kind == "declare" and statement.verb == "defineLike" then return self.defineLike(statement)
-	if statement.kind == "declare" and statement.verb == "own" then return self.learnOwnership(statement, true)
-	if statement.kind == "declare" and statement.verb == "dontOwn" then return self.learnOwnership(statement, false)
+	if statement.kind == "declare" and attitudeOf(statement.verb) then return self.learnAttitude(statement)
 	return "Sorry, I can't do that yet."
 end function
 
@@ -477,6 +487,9 @@ Brain.test = function(thing, c)
 		return true
 	end if
 	if pred == "oneOf" then return self.isOneOf(thing, c.args[0])
+	// "The other green cube": not one we've just been talking about, in
+	// this sentence or the last.
+	if pred == "other" then return not containsRef(self.mentioned, thing) and not containsRef(self.lastMentioned, thing)
 	if pred == "could" then
 		// "Which blocks can you pick up?"  The ones that can be moved.
 		e = self.lookup(c.args[0])
@@ -484,7 +497,12 @@ Brain.test = function(thing, c)
 		return self.fail("I'm not sure what I could " + e.verb + ".")
 	end if
 	if pred == "commanded" then return self.wasCommanded(thing, c.args)
-	if pred == "owned" then return self.owns(thing) == true
+	if self.attitudeFor.hasIndex(pred) then
+		// [owned] is the user's; [owned you] is the robot's
+		person = "i"
+		if c.args then person = c.args[0]
+		return self.feels(self.attitudeFor[pred], thing, person)
+	end if
 	if pred == "did" then return self.didWith(thing, c.args[0])
 	if (pred == "before" or pred == "after") and c.args.len == 2 then return self.testThen(thing, c)
 	if pred == "then" then
@@ -669,7 +687,15 @@ Brain.definite = function(var)
 			return self.fail("I don't understand which " + self.phraseFor(d, false, false) + " you mean.")
 		end if
 	end if
+	self.noteMentioned things
 	return things
+end function
+
+// Note that this sentence referred to these things (see Brain.mentioned).
+Brain.noteMentioned = function(things)
+	for t in things
+		if not containsRef(self.mentioned, t) then self.mentioned.push t
+	end for
 end function
 
 // Of these things, the ones the user is pointing at or we were just
@@ -690,6 +716,7 @@ end function
 
 // Remember what we just talked about, for "it", "them", and "one".
 Brain.noteFocus = function(var, things)
+	self.noteMentioned things
 	d = self.prog.lookup(var)
 	if d and d.kind == "description" and self.isNoun(d.head) then
 		self.focus.noun = d.head
@@ -781,7 +808,9 @@ Brain.phraseFor = function(d, plural, full=true)
 		if c.args then words.push lexicon.ordinals[c.args[0]]     // "seventh tallest"
 		words.push c.pred
 	end for
-	for c in d.props
+	// (With what "one" borrowed: "green cubes", for "the one" after "How
+	// many green cubes are there?")
+	for c in d.props + self.borrowedAdjectives(d)
 		if ["size", "height", "breadth", "color"].indexOf(c.pred) == null or c.args.len != 1 then continue
 		if c.args[0] == "big" then words.push "large" else words.push c.args[0]     // as we say it
 	end for
@@ -827,6 +856,11 @@ Brain.constraintPhrase = function(c, plural)
 		return "not " + inner
 	end if
 	if c.pred == "held" then return "which I am holding"
+	// "blocks which you own", "pyramids which I like"
+	if self.attitudeFor.hasIndex(c.pred) then
+		if c.args and c.args[0] == "you" then return "which I " + self.attitudeFor[c.pred]
+		return "which you " + self.attitudeFor[c.pred]
+	end if
 	if c.args.len != 1 or not icl.isVar(c.args[0]) then return null
 	other = self.argPhrase(c.args[0])
 	if other == null then return null
@@ -1017,6 +1051,8 @@ Brain.answerAttribute = function(var, attr)
 	end if
 	if things == null then return null
 	self.noteFocus var, things
+	// "What is that cube called?"
+	if attr == "name" and things.len == 1 and not things[0].names then return "It doesn't have a name."
 	values = []
 	for t in things
 		v = self.attributeOf(t, attr)
@@ -1029,6 +1065,10 @@ end function
 Brain.attributeOf = function(thing, attr)
 	if attr == "color" then return thing.color
 	if attr == "shape" then return speech.withArticle(thing.noun)     // "a pyramid"
+	if attr == "name" then
+		if thing.names then return thing.names[0]
+		return "one without a name"
+	end if
 	if attr == "size" then
 		word = speech.sizeWord(self.world, thing)
 		if word == null then return "medium-sized"
@@ -1047,14 +1087,12 @@ Brain.answerYesNo = function(var, claim)
 		if self.test(t, claim) then meeting.push t
 		if self.problem then return null
 	end for
-	if not self.quantityOk(ref, meeting.len) then
-		// "Do I own the table?"  We weren't told either way.
-		if claim.pred == "owned" and ref.things.len == 1 and self.owns(ref.things[0]) == null then
-			return "I don't know."
-		end if
-		return "No."
-	end if
+	if not self.quantityOk(ref, meeting.len) then return "No."
 	self.noteFocus var, ref.things
+	// "Do you like the box?"  If nobody said otherwise: "Yes, I like
+	// everything."
+	if claim.pred == "liked" and claim.args == ["you"] and ref.things.len == 1 and
+	  not self.wasTold(ref.things[0], "you feeling") then return "Yes, I like everything."
 	// "Is it supported?"  "Yes, by the table."
 	if claim.pred == "supported" and ref.things.len == 1 then
 		return "Yes, by " + speech.namesFor(self.world, ref.things[0].supporters) + "."
@@ -1187,7 +1225,7 @@ end function
 commandGoals = {
   "pickUp": "grasp", "grasp": "grasp",
   "putOn": "putOn", "putIn": "putOn", "putDown": "putDown", "drop": "putDown",
-  "putAt": "putAt",
+  "putAt": "putAt", "addTo": "addTo",
   "clearOff": "clearOff", "cleanOff": "clearOff",
   "getRidOf": "getRidOf",
   "stack": "stack", "stackUp": "stack",
@@ -1204,6 +1242,7 @@ Brain.command = function(cmd)
 		return "Sorry, I don't know how to " + cmd.verb + "."
 	end if
 	kind = commandGoals[cmd.verb]
+	self.commandKind = kind
 	// Work out what each argument means.  The things to be moved are the
 	// first argument (or all of them, for a stack).
 	if kind == "stack" then self.moving = cmd.args else self.moving = cmd.args[:1]
@@ -1239,6 +1278,15 @@ Brain.command = function(cmd)
 		if groups[1].len > 1 then return self.fail("I can only put things in one place at a time.")
 		for t in groups[0]
 			goals.push ["putOn", [t, groups[1][0]]]
+		end for
+	else if kind == "addTo" then
+		// "Add the red pyramid": put it with the things we were just
+		// talking about ("What's in the box?"  "The green pyramid and the
+		// blue pyramid."), so where they all are.
+		place = self.commonPlace
+		if place == null then return self.fail("Add it to what?")
+		for t in groups[0]
+			goals.push ["putOn", [t, place]]
 		end for
 	else if kind == "putAt" then
 		// "Put the red cube next to the blue block": on whatever the blue
@@ -1391,6 +1439,10 @@ Brain.choose = function(var)
 		things = self.notChosenYet(fitting)
 		want = things.len
 		if d.det == "a" or d.det == "any" or d.det == "which" then want = 1
+		// "Remove anything I don't own from the box": getting rid of
+		// "anything" means all of it.  ("Pick up anything red" means just
+		// one, since you can only pick up one.)
+		if d.det == "any" and self.commandKind == "getRidOf" then want = things.len
 		if d.det == "number" or d.det == "at-least" then want = d.n
 		if things.len == 0 or things.len < want then
 			if fitting.len > things.len and want == 1 then
@@ -1403,7 +1455,23 @@ Brain.choose = function(var)
 	end if
 	if things == null then return null
 	self.chosen[var] = things
+	self.noteMentioned things
 	return things
+end function
+
+// Where the things we were just talking about all are (what they all rest
+// on), or null if they're not all in one place.
+Brain.commonPlace = function
+	things = self.focus.them
+	if not things and self.focus.it then things = [self.focus.it]
+	if not things then return null
+	place = null
+	for t in things
+		if t.supporters.len != 1 then return null
+		if place == null then place = t.supporters[0]
+		if not refEquals(place, t.supporters[0]) then return null
+	end for
+	return place
 end function
 
 // Just the things that can be moved.
@@ -1730,13 +1798,13 @@ Brain.answerMethod = function(var)
 		if self.definitions.hasIndex(word) and self.definitions[word].hasIndex("parts") then
 			return "By stacking up " + self.definitions[word].parts + "."
 		end if
-		if self.definitions.hasIndex(word) and self.definitions[word].hasIndex("example") then
+		if self.definitions.hasIndex(word) and self.definitions[word].hasIndex("layerNames") then
 			// "By putting a block on a block, then a pyramid on that."
-			shapes = self.definitions[word].example
-			if shapes.len == 1 then return "I just find " + speech.withArticle(shapes[0]) + "."
-			steps = ["putting " + speech.withArticle(shapes[1]) + " on " + speech.withArticle(shapes[0])]
-			for s in shapes[2:]
-				steps.push speech.withArticle(s) + " on that"
+			names = self.definitions[word].layerNames
+			if names.len == 1 then return "I just find " + names[0] + "."
+			steps = ["putting " + names[1] + " on " + names[0]]
+			for n in names[2:]
+				steps.push n + " on that"
 			end for
 			return "By " + steps.join(", then ") + "."
 		end if
@@ -1825,6 +1893,7 @@ Brain.hear = function(text)
 	r = meaning.understand(text, self.knownNames, self.definitions.indexes)
 	self.lastUnderstanding = r
 	if r.error then return r.error
+	if r.trees[0].kind == "whatAbout" then return self.whatAbout(r.trees[0])
 	pick = self.pickReading(r)
 	if pick.question then
 		self.question = pick.question
@@ -1839,6 +1908,122 @@ Brain.hear = function(text)
 	reply = self.actOn(r, pick.index)
 	if pick.note then reply = pick.note + " " + reply
 	return reply
+end function
+
+//----------------------------------------------------------------------
+// "What about...?"
+//
+// "Is there anything in the box that I love?"  "No."  "What about on the
+// table?"  The new phrase takes the place of part of what was said last,
+// and we answer (or do) that.  Which part:
+//   - A place ("on the table") replaces a place: one with the same
+//     preposition if there is one ("in the box" here), or else the first.
+//   - A noun phrase replaces a noun phrase: first one with the same noun
+//     ("Is the red block tall?  What about the green block?"); then one
+//     that's the same sort, definite or not ("Do you like the green cube?
+//     What about the box?", or "How many red blocks are there?  What about
+//     green ones?"); and failing those, what the sentence was about.
+// The old question's own determiner stays, so "green ones" in place of
+// "how-many blocks [color red]" is "how-many blocks [color green]".
+//----------------------------------------------------------------------
+
+Brain.whatAbout = function(tree)
+	if self.lastActed == null then return "What about it?  I'm not sure what you're asking."
+	before = self.lastActed.understanding
+	old = before.programs[self.lastActed.index]
+	prog = icl.read(old.format)     // a fresh copy, to change
+	m = meaning.Meaning.make
+	m.prog = prog
+	oldVars = prog.vars.indexes
+	phrase = tree.parts[1]
+	if phrase.cat == "PP" then
+		ok = replaceRelation(prog, m.constraintFor(phrase))
+	else
+		ok = self.replaceDescription(prog, m.describe(phrase), oldVars)
+	end if
+	if not ok then return "I'm not sure what you mean."
+	r = {"programs": [prog], "trees": [tree], "phrases": [before.phrases[self.lastActed.index] + m.phrases], "error": null}
+	return self.actOn(r, 0)
+end function
+
+// Put a new place in for an old one (see whatAbout).  Returns whether it
+// found one to replace.
+replaceRelation = function(prog, c)
+	found = null
+	for item in prog.lines
+		if item.kind != "description" then continue
+		for i in item.props.indexes
+			p = item.props[i]
+			if not relationWords.hasIndex(p.pred) or p.args.len != 1 or not icl.isVar(p.args[0]) then continue
+			if found == null or (p.pred == c.pred and found[0].props[found[1]].pred != c.pred) then found = [item, i]
+		end for
+	end for
+	if found == null then return false
+	found[0].props[found[1]] = c
+	return true
+end function
+
+// Put a new noun phrase (newVar) in for an old one (see whatAbout).  Returns
+// whether it found one to replace.
+Brain.replaceDescription = function(prog, newVar, oldVars)
+	d = prog.lookup(newVar)
+	if d.kind != "description" then return false
+	olds = []
+	for v in oldVars
+		item = prog.lookup(v)
+		if item.kind == "description" then olds.push item
+	end for
+	target = null
+	// The same noun, the latest one.
+	for o in olds
+		if o.head == d.head and d.head != "one" then target = o
+	end for
+	// The same sort, definite or not.  (A question's "which" or "how many"
+	// counts as not definite.)
+	if target == null then
+		for o in olds
+			if isDefinite(o) == isDefinite(d) and target == null then target = o
+		end for
+	end if
+	// What the sentence was about.
+	if target == null then
+		for s in prog.statements
+			if s.hasIndex("target") and icl.isVar(s.target) then target = prog.lookup(s.target)
+			if s.hasIndex("args") and s.args and icl.isVar(s.args[0]) then target = prog.lookup(s.args[0])
+		end for
+	end if
+	if target == null or target.kind != "description" then return false
+	// Keep the question's own determiner, and "one" borrows the old noun.
+	if target.det == "which" or target.det == "how-many" then
+		d.det = target.det
+		d.n = target.n
+	end if
+	if d.head == "one" then d.head = target.head
+	// Everything that meant the old one means the new one now.
+	for item in prog.lines
+		replaceVar item, target.var, newVar
+	end for
+	prog.lines.remove prog.lines.indexOf(target)
+	prog.vars.remove target.var
+	return true
+end function
+
+// Replace one variable with another, everywhere in a line of ICL
+// (constraints, arguments, groups...).
+replaceVar = function(item, oldVar, newVar)
+	for key in ["args", "members", "props"]
+		if not item.hasIndex(key) or not (item[key] isa list) then continue
+		list = item[key]
+		for i in list.indexes
+			if list[i] isa map then
+				replaceVar list[i], oldVar, newVar
+			else if list[i] == oldVar then
+				list[i] = newVar
+			end if
+		end for
+	end for
+	if item.hasIndex("target") and item.target == oldVar then item.target = newVar
+	if item.hasIndex("claim") and item.claim isa map then replaceVar item.claim, oldVar, newVar
 end function
 
 // "What did the box contain before you put the red cube in it?"  "It" is
@@ -1896,6 +2081,7 @@ end function
 Brain.actOn = function(r, index)
 	r.chosen = index
 	self.lastUnderstanding = r
+	self.lastActed = {"understanding": r, "index": index}
 	self.phrases = {}
 	for p in r.phrases[index]
 		self.phrases[p.var] = p.words
@@ -2047,7 +2233,24 @@ Brain.assumption = function(r, chosen, other)
 	if varies then return null
 	things = self.check(r.programs[chosen], phrase.var).referents[phrase.var]
 	if not things then return null
+	// If the other reading means the same things by some phrase of its own
+	// ("the box", and "the box that I don't own"), then the readings differ
+	// in what's said about them, not in what they mean, and there's no
+	// assumption to tell the user about.
+	for p in r.phrases[other]
+		theirs = self.check(r.programs[other], p.var).referents[p.var]
+		if theirs and sameThings(theirs, things) then return null
+	end for
 	return "By """ + phrase.words + """, I assume you mean " + speech.specificNamesFor(self.world, things) + "."
+end function
+
+// Are these the same things (in any order)?
+sameThings = function(a, b)
+	if a.len != b.len then return false
+	for t in a
+		if not containsRef(b, t) then return false
+	end for
+	return true
 end function
 
 // Would this program make sense right now?  Works out what each statement
@@ -2062,7 +2265,8 @@ end function
 // (Commands are not carried out, so a later statement in the same sentence
 // is checked against the world as it is now.)
 Brain.check = function(prog, alsoVar=null)
-	saved = {"focus": self.focus + {}, "prog": self.prog, "chosen": self.chosen}
+	saved = {"focus": self.focus + {}, "prog": self.prog, "chosen": self.chosen, "mentioned": self.mentioned}
+	self.mentioned = self.mentioned[:]
 	self.prog = prog
 	self.chosen = {}
 	self.problem = null
@@ -2081,6 +2285,7 @@ Brain.check = function(prog, alsoVar=null)
 	self.focus = saved.focus
 	self.prog = saved.prog
 	self.chosen = saved.chosen
+	self.mentioned = saved.mentioned
 	self.problem = null
 	return {"problem": problem, "summary": summary.join("; "), "referents": referents}
 end function
@@ -2170,46 +2375,151 @@ Brain.giveName = function(statement)
 end function
 
 //----------------------------------------------------------------------
-// Ownership
+// Attitudes: owning, liking, and so on
 //
-// The user can tell us what they own, either particular things ("The
-// blue pyramid is mine") or kinds of thing ("I own blocks which are not
-// red").  A kind is kept as its description, and checked whenever it
-// matters, so it covers things that come to fit it later.  What we were
-// told last counts most, so in "I own blocks which are not red, but I
-// don't own anything which supports a pyramid", a blue block that
-// supports a pyramid isn't owned.
+// The user can tell us what they own, like, love, hate or dislike (see
+// icl.attitudes), either particular things ("The blue pyramid is mine")
+// or kinds of thing ("I own blocks which are not red").  A kind is kept as
+// its description, and checked whenever it matters, so it covers things
+// that come to fit it later.  What we were told last counts most, so in "I
+// own blocks which are not red, but I don't own anything which supports a
+// pyramid", a blue block that supports a pyramid isn't owned.
+//
+// Owning is true or false, and false until we're told otherwise.  So "Do I
+// own the box?" is "No." if we were never told; that agrees with "How many
+// things do I own?", which counts only what we were told.
+//
+// Feelings are one scale instead (icl.feelingLevels): hate -2, dislike -1,
+// neutral 0, like 1, love 2.  Everything starts neutral.
+//   - "I like it" sets it to like (1), and so on.
+//   - "I don't like it" moves it to the nearest level that isn't liking:
+//     from like or love to neutral.  "I don't love it" takes love down to
+//     like; "I don't hate it" takes hate up to dislike; "I don't dislike
+//     it" takes dislike or hate up to neutral.  A feeling that's already
+//     not that is left alone.
+//   - "Do I like it?" means like or love; "Do I dislike it?" means dislike
+//     or hate; love and hate are the ends.
+// Owning and feelings are separate: hating something doesn't stop you
+// owning it.
 //----------------------------------------------------------------------
 
-// "Own x1" or "DontOwn x1".  Each thing we're told about, or kind of thing,
-// goes in self.ownership as {things, owned} or {prog, var, owned}.
-Brain.learnOwnership = function(statement, owned)
+// The attitude a statement's verb is about ("dontLike" -> "like"), or null
+// if it isn't one.
+attitudeOf = function(verb)
+	if verb.len > 4 and verb[:4] == "dont" then verb = icl.uncapitalize(verb[4:])
+	if icl.attitudes.hasIndex(verb) then return verb
+	return null
+end function
+
+// "Own x1", "DontLike x1", "Own x1, you"...  Each thing we're told about,
+// or kind of thing, goes in a list as {things, verb, holds} or {prog, var,
+// verb, holds}: self.attitudes["i own"] for what the user owns,
+// self.attitudes["you feeling"] for all the robot's feelings together, and
+// so on, in the order we were told.
+//
+// "I own no red blocks" says the same as "I don't own any red blocks".
+// (Winograd's robot did the same.)
+Brain.learnAttitude = function(statement)
+	verb = attitudeOf(statement.verb)
+	holds = statement.verb == verb     // (not "dont...")
 	var = statement.args[0]
+	person = "i"
+	if statement.args.len > 1 then person = statement.args[1]
 	d = self.lookup(var)
 	if d == null then return null
+	// "I own the red cube and the box": each of them.
+	if d.kind == "group" then
+		nouns = []
+		for m in d.members
+			reply = self.learnAttitude(statement + {"args": [m] + statement.args[1:]})
+			if reply == null then return null
+			head = self.lookup(m).head
+			if nouns.indexOf(head) == null then nouns.push head
+		end for
+		// What "one" (or "mine") borrows now: their noun if they share one,
+		// or else just "thing".  ("I own the red cube and the green pyramid.
+		// Put mine in the box.")
+		if nouns.len == 1 and self.isNoun(nouns[0]) then self.focus.noun = nouns[0] else self.focus.noun = "thing"
+		self.focus.nounAdjectives = []
+		return "I understand."
+	end if
+	if d.kind == "description" and d.det == "no" then holds = not holds
+	key = person + " " + verb
+	if icl.feelingLevels.hasIndex(verb) then key = person + " feeling"
+	if not self.attitudes.hasIndex(key) then self.attitudes[key] = []
+	entry = {"verb": verb, "holds": holds}
 	if isDefinite(d) then
 		things = self.definite(var)
 		if things == null then return null
 		self.noteFocus var, things
-		self.ownership.push {"things": things, "owned": owned}
+		entry.things = things
 	else
-		self.ownership.push {"prog": self.prog, "var": var, "owned": owned}
+		entry.prog = self.prog
+		entry.var = var
 	end if
+	self.attitudes[key].push entry
 	return "I understand."
 end function
 
-// Does the user own this thing?  true, false, or null if we haven't been
-// told either way.
-Brain.owns = function(thing)
-	for i in range(self.ownership.len - 1, 0, -1)
-		entry = self.ownership[i]
-		if entry.hasIndex("things") then
-			if containsRef(entry.things, thing) then return entry.owned
-		else if self.fitsDescription(thing, entry) then
-			return entry.owned
+// Were we told anything about this thing, in this list of attitudes
+// ("you feeling", "i own"...)?
+Brain.wasTold = function(thing, key)
+	if not self.attitudes.hasIndex(key) then return false
+	for entry in self.attitudes[key]
+		if self.entryFits(entry, thing) then return true
+	end for
+	return false
+end function
+
+// Is this entry (from learnAttitude) about this thing?
+Brain.entryFits = function(entry, thing)
+	if entry.hasIndex("things") then return containsRef(entry.things, thing)
+	return self.fitsDescription(thing, entry)
+end function
+
+// Does the user (or, with person "you", the robot) have this attitude to
+// this thing ("own", "like"...)?
+Brain.feels = function(verb, thing, person="i")
+	if icl.feelingLevels.hasIndex(verb) then
+		level = icl.feelingLevels[verb]
+		feeling = self.feelingFor(thing, person)
+		if level > 0 then return feeling >= level     // loving is liking too
+		return feeling <= level                       // hating is disliking too
+	end if
+	// Owning: the newest thing we were told about it decides; if nothing
+	// was, no.
+	key = person + " " + verb
+	if not self.attitudes.hasIndex(key) then return false
+	told = self.attitudes[key]
+	for i in range(told.len - 1, 0, -1)
+		if self.entryFits(told[i], thing) then return told[i].holds
+	end for
+	return false
+end function
+
+// How everyone feels about things before we're told otherwise: the user is
+// neutral (0), and the robot likes everything (1), as Winograd's robot did
+// ("There is a theorem which shows that the robot likes everything").
+startingFeeling = {"i": 0, "you": 1}
+
+// How the user (or the robot) feels about a thing, from -2 (hate) to 2
+// (love): what we were told, oldest first, from where they started.
+Brain.feelingFor = function(thing, person="i")
+	feeling = startingFeeling[person]
+	key = person + " feeling"
+	if not self.attitudes.hasIndex(key) then return feeling
+	for entry in self.attitudes[key]
+		if not self.entryFits(entry, thing) then continue
+		level = icl.feelingLevels[entry.verb]
+		if entry.holds then
+			feeling = level
+		else if level > 0 and feeling >= level then
+			feeling = level - 1     // "I don't love it": like it, at most
+		else if level < 0 and feeling <= level then
+			feeling = level + 1     // "I don't hate it": dislike it, at least
 		end if
 	end for
-	return null
+	return feeling
 end function
 
 // Does a thing fit a description the user gave in an earlier sentence?
@@ -2272,7 +2582,45 @@ Brain.define = function(statement)
 			self.definitions[word].parts = self.wordsFor(c.args[0])
 		end if
 	end for
+	// "A steeple is a pyramid on top of a cube" describes an arrangement.
+	pattern = self.patternOf(d)
+	if pattern then
+		def = self.definitions[word]
+		def.pattern = pattern
+		def.layerNames = []
+		for v in pattern
+			def.layerNames.push speech.withArticle(self.phraseFor(self.lookup(v), false))
+		end for
+	end if
 	return "I understand."
+end function
+
+// "A pyramid on top of a cube" (x1 = a pyramid [on x2]; x2 = a cube) is an
+// arrangement of things, one on another: a cube with a pyramid on it.  As
+// a definition, that means the pair, not just the pyramid.  This returns
+// the layers, bottom first, as variables for descriptions of each part on
+// its own (a copy of "a pyramid" without its [on x2]); or null if the
+// description isn't like that.
+Brain.patternOf = function(d)
+	layers = []
+	while true
+		link = null
+		rest = []
+		for c in d.props
+			if (c.pred == "on" or c.pred == "above") and link == null and c.args.len == 1 and icl.isVar(c.args[0]) then
+				link = c
+			else
+				rest.push c
+			end if
+		end for
+		part = icl.description(d.det, d.head, false, rest)
+		layers.insert 0, self.prog.add(part)
+		if link == null then break
+		d = self.lookup(link.args[0])
+		if d == null or d.kind != "description" or isDefinite(d) then return null
+	end while
+	if layers.len < 2 then return null
+	return layers
 end function
 
 //----------------------------------------------------------------------
@@ -2313,7 +2661,11 @@ Brain.defineLike = function(statement)
 	else
 		shapes.push example.shape
 	end if
-	self.definitions[word] = {"example": shapes}
+	names = []
+	for s in shapes
+		names.push speech.withArticle(s)
+	end for
+	self.definitions[word] = {"example": shapes, "layerNames": names}
 	self.noteFocus statement.args[0], things
 	// The new word is the noun we're talking about: "Build another one."
 	self.focus.noun = word
@@ -2342,29 +2694,76 @@ Brain.thingsLike = function(shapes)
 	return result
 end function
 
-// Things to build one like the example from: for each shape in turn, the
-// one of that shape that's least trouble to get (and not already picked).
-// We don't take apart one that's already built, if we can help it.  And
-// the bottom one should already be on the table, if one is, so the new
-// one stands on its own rather than on top of something else.
-Brain.exampleParts = function(shapes, word)
-	if shapes.len < 2 then return self.fail("Sorry, I don't know how to build " + speech.withArticle(word) + ".")
+// Things to build one from, for a word in layers (see layeredDefinition):
+// for each layer in turn, the thing that's least trouble to get (and not
+// already picked).  We don't take apart one that's already built, if we
+// can help it.  And the bottom one should already be on the table, if one
+// is, so the new one stands on its own rather than on top of something
+// else.
+Brain.layerParts = function(def, word)
+	layers = self.layerChoices(def)
+	if layers == null then return null
+	if layers.len < 2 then return self.fail("Sorry, I don't know how to build " + speech.withArticle(word) + ".")
 	built = []
-	for s in self.thingsLike(shapes)
+	if def.hasIndex("example") then existing = self.thingsLike(def.example) else existing = self.thingsMatching(def)
+	for s in existing
 		built += s.parts
 	end for
 	parts = []
-	for i in shapes.indexes
-		choices = []
-		for t in self.world.things
-			if t.shape == shapes[i] and t.movable and not containsRef(parts, t) then choices.push t
-		end for
-		if not choices then return self.fail("I don't see enough " + icl.pluralize(shapes[i]) + " to build " + speech.withArticle(word) + ".")
-		choices = preferring(choices, notIn(choices, built))
+	for i in layers.indexes
+		choices = notIn(movableOnes(layers[i]), parts)
+		if not choices then return self.fail("I don't see enough things to build " + speech.withArticle(word) + ".")
+		if not notIn(choices, built) then
+			return self.fail("I can't build another " + word + " without taking one apart.")
+		end if
+		choices = notIn(choices, built)
 		if i == 0 then choices = preferring(choices, onTable(choices, self.world.table))
 		parts.push self.leastTrouble(choices)[0]
 	end for
 	return parts
+end function
+
+// For each layer of a word in layers, bottom first, the things that could
+// be that layer: things of the example's shape, or that fit the pattern's
+// description of that layer.
+Brain.layerChoices = function(def)
+	result = []
+	if def.hasIndex("example") then
+		for shape in def.example
+			things = []
+			for t in self.world.things
+				if t.shape == shape then things.push t
+			end for
+			result.push things
+		end for
+		return result
+	end if
+	saved = self.enter(def.prog)
+	for v in def.pattern
+		things = self.candidates(v)
+		if things == null then break
+		result.push things
+	end for
+	self.leave saved
+	if self.problem then return null
+	return result
+end function
+
+// The stacks whose top layers fit a pattern ("a pyramid on top of a cube"):
+// the cube with the pyramid on it, wherever that cube is.
+Brain.thingsMatching = function(def)
+	result = []
+	n = def.pattern.len
+	for s in relations.stacks(self.world)
+		if s.parts.len < n then continue
+		top = s.parts[-n:]
+		fits = true
+		for i in top.indexes
+			if not self.fitsDescription(top[i], {"prog": def.prog, "var": def.pattern[i]}) then fits = false
+		end for
+		if fits then result.push relations.stackOf(self.world, top)
+	end for
+	return result
 end function
 
 // The better choices if there are any, or else all of them.
@@ -2399,6 +2798,7 @@ Brain.definedThings = function(word)
 	end if
 	def = self.definitions[word]
 	if def.hasIndex("example") then return self.thingsLike(def.example)
+	if def.hasIndex("pattern") then return self.thingsMatching(def)
 	if def.hasIndex("things") then return def.things[:]
 	self.expanding[word] = true
 	saved = self.enter(def.prog)
@@ -2437,7 +2837,7 @@ Brain.build = function(cmd)
 	first = self.world.goals.len
 	// A word taught by example says the order too, bottom first.
 	order = null
-	if self.exampleOf(cmd.args[0]) then order = "ordered"
+	if self.layeredDefinition(cmd.args[0]) then order = "ordered"
 	problem = self.planner.achieve("stack", parts, order)
 	root = self.world.goals[first]
 	root.verb = cmd.verb
@@ -2484,16 +2884,16 @@ Brain.thingToName = function(var)
 	return self.definite(var)
 end function
 
-// If a description's noun is a word taught by example, the example's
-// shapes (bottom first); otherwise null.
-Brain.exampleOf = function(var)
+// If a description's noun is a word for things in layers (taught by
+// example, or as "a pyramid on a cube"), its definition; otherwise null.
+Brain.layeredDefinition = function(var)
 	d = self.lookup(var)
 	if d == null or d.kind != "description" then return null
 	word = d.head
 	if word == "one" then word = self.antecedentNoun(d)
 	if not self.definitions.hasIndex(word) then return null
 	def = self.definitions[word]
-	if def.hasIndex("example") then return def.example
+	if def.hasIndex("example") or def.hasIndex("pattern") then return def
 	return null
 end function
 
@@ -2520,7 +2920,7 @@ Brain.buildParts = function(var)
 		return self.fail("Sorry, I don't know how to build " + speech.withArticle(word) + ".")
 	end if
 	def = self.definitions[word]
-	if def.hasIndex("example") then return self.exampleParts(def.example, word)
+	if def.hasIndex("example") or def.hasIndex("pattern") then return self.layerParts(def, word)
 	if def.hasIndex("things") then return self.fail("Sorry, I don't know how to build " + speech.withArticle(word) + ".")
 	saved = self.enter(def.prog)
 	parts = self.stackParts(def.var, word)

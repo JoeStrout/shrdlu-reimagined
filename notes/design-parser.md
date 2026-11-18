@@ -205,6 +205,9 @@ After the dialogue, the grammar grew to cover the many other ways people say the
   - "That is a steeple" and "This is called a steeple" are like "call that a steeple".
   - Right after a stack is made, "that", "it" and "this" in naming mean the whole stack (`Brain.thingToName`).
   - Names keep the case they were typed in ("Bob"), and match in any case.
+- **Definitions that are arrangements.** "A "steeple" is a pyramid on top of a cube" defines the pair, not the pyramid. The brain keeps it as layers, bottom first: a cube, then a pyramid (`Brain.patternOf`). A steeple is then any stack whose top layers fit, and "Make one" builds it in that order. Words taught by example are layers too, of shapes.
+- **"Other" and "another".** "The other green cube" is `[other]`: not something referred to in this sentence or the last. "Another" is "a" with `[other]`.
+- **"Add X"** puts X where the things just talked about are: `AddTo x1`. "Add X to Y" is `PutOn`.
 
 ## Part 4: Ambiguity
 
@@ -220,6 +223,10 @@ The grammar returns both, and the meaning pass turns each into ICL. Then the bra
 - The parser takes the **first parse (in grammar order) that checks clean**. If none do, it reports the problem from the first parse, since that's the most likely reading.
 - When more than one parse checks clean and they mean different things, the robot takes the first, and **says which reading it chose**, Winograd style, before its reply. It names the noun phrase that differs between the readings, and what it took that phrase to mean: `By "the block in the box", I assume you mean the large red block.` (The name comes from `speech.ms`, as in the robot's other replies.) The under-the-hood panel will list the other readings.
 - **"It" in the same sentence.** "It" means what we were talking about before, unless that makes no sense. Then the brain tries the readings where "it" is an earlier noun phrase in the same sentence, nearest first. In "What did the box contain before you put the red cube in it?", "it" is the box, and the robot says so (`meaning.itReadings`).
+- **"What about X?"** (also "How about X?", "And X?") isn't parsed into ICL of its own. The brain copies the last program it acted on (by printing and reading back its ICL), and puts X in place of part of it (`Brain.whatAbout`):
+  - A place ("on the table") replaces a place, preferring the same preposition.
+  - A noun phrase replaces one with the same noun, or else one of the same sort (definite or not), or else what the sentence was about.
+  - A question's "which" or "how many" stays, and "ones" borrows the old noun.
 - **Saying which one.** After "I don't understand which green cube you mean.", a noun phrase on its own ("The one supporting a pyramid.", "Any one.") is added to that description, and the robot tries again (`Brain.settle`).
 - **Some words the robot asks about instead.** "On top of" has two senses in the lexicon, each with a description: directly on (`[on]`), and anywhere above (`[above]`). When readings that use different senses would mean different things, the robot asks, as Winograd's did: `I'm not sure what you mean by "on top of" in the phrase "on top of green cubes".  Do you mean: 1 - directly on the surface 2 - anywhere on top of?` (one choice per line). If the next thing the user types is just a number, it picks that reading and the robot carries it out; anything else drops the question. In a command ("put it on top of the red block"), only the "on" sense fits the verb's shape, so there's nothing to ask. A yes/no question ("Is the green pyramid on top of the blue block?") is asked about when the two senses give different answers, since a yes/no question's answer is part of what its reading means.
 

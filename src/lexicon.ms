@@ -112,7 +112,8 @@ determiner "each", "every", "sg"
 determiner "all", "every", "pl"
 determiner "no", "no"
 determiner "none", "no"     // "none of them"
-determiner "another", "a", "sg"     // "Build another one."
+// "Another" is "a", and "other": "Build another one."
+add "another", {"cat": "det", "det": "a", "number": "sg", "n": null, "other": true}
 // "That cube" and "this cube" are "the cube", which prefers the one just
 // mentioned or clicked on (see Brain.inFocus).
 determiner "that", "the", "sg"
@@ -167,6 +168,8 @@ end for
 for w in ["narrow", "thin", "skinny"]
 	adjective w, "breadth", "narrow"
 end for
+// "The other green cube": not the one we just talked about.
+adjective "other", "other"
 adjective "clear", "clear"
 adjective "empty", "empty"
 adjective "supported", "supported"
@@ -248,10 +251,20 @@ verb "stand", {"posture": true}
 verb "hold", {"held": true}
 verb "grasp", {"held": true}
 
-// Owning: "I own blocks which are not red", "the blue pyramid is mine".
-// (Only the user owns things, so far.)
-verb "own", {"own": true}
-add "mine", {"cat": "mine"}
+// The user's attitudes: "I own blocks which are not red", "I like the
+// blue pyramid", "I don't like red blocks" (see icl.attitudes).  Only the
+// user has them, so far.  "Mine" is owning: "the blue pyramid is mine".
+for v in icl.attitudes.indexes
+	verb v, {"attitude": v}
+end for
+// "Mine" and "yours": "the blue pyramid is mine".  (Whose: "i" is the
+// user, "you" the robot.)
+add "mine", {"cat": "mine", "owner": "i"}
+add "yours", {"cat": "mine", "owner": "you"}
+// "My blocks" are the blocks I own; "your pyramid" is the pyramid you (the
+// robot) own.
+add "my", {"cat": "det", "det": "the", "number": null, "n": null, "owner": "i"}
+add "your", {"cat": "det", "det": "the", "number": null, "n": null, "owner": "you"}
 
 // Command verbs, with their frames.  A shape of "" means the verb alone
 // ("let go").
@@ -320,6 +333,9 @@ command "get rid of", [frame("thing", "getRidOf")]
 command "remove", [frame("thing", "getRidOf"), fromFrame("thing from thing", "getRidOf")]
 command "stack", [frame("up thing", "stack"), frame("thing", "stack"), frame("thing on thing", "putOn")]
 command "pile", [frame("up thing", "stack")]
+// "Add the red pyramid" (to the things we were just talking about).
+command "add", [frame("thing", "addTo"), frame("thing to thing", "putOn"), frame("thing in thing", "putIn"),
+  frame("thing on thing", "putOn")]
 command "find", [frame("thing", "find")]
 command "build", [frame("thing", "build"), frame("me thing", "build")]
 command "make", [frame("thing", "build"), frame("me thing", "build")]
@@ -349,7 +365,7 @@ simple "from", "from"
 simple "me", "me"
 
 // Question words.
-for w in ["color", "colour", "size", "shape"]
+for w in ["color", "colour", "size", "shape", "name"]
 	add w, {"cat": "attribute", "attr": w.replace("colour", "color")}
 end for
 for w in ["why", "how", "when"]
@@ -396,8 +412,17 @@ end for
 for w in ["i want you to", "i would like you to", "i need you to", "try to", "go", "go and", "please"]
 	simple w, "request"
 end for
+// "What about the table?"  "How about on the table?"  The last thing said,
+// again, with this in place of part of it (see Brain.whatAbout).
+for w in ["what about", "how about"]
+	simple w, "whatAbout"
+end for
+
 // Words that may end a sentence without changing what it means.
 simple "again", "again"
+for w in ["too", "as well"]
+	simple w, "again"
+end for
 for w in ["right now", "at the moment", "currently"]
 	simple w, "now"
 end for

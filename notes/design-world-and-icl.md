@@ -376,7 +376,7 @@ The **focus history** (recent descriptions, sets, and objects) is part of the br
 
 `Build x1` builds what a taught word means, when that's a stack of certain things: `x1 = a stack [contains x4]`, with x4 the things. The brain chooses the parts as it would for a command, then sets a `stack` goal. "Build one", after "Are there any steeples now?" "No.", gets its noun from the question.
 
- Ownership isn't stored on the things. The brain keeps a list of what it was told. For one thing ("the blue pyramid"), that's the thing; for a kind ("any blocks [not [color red]]"), it's the description, checked against the world whenever ownership matters. The newest entry that fits a thing decides, and if none does, the robot doesn't know (`[owned]` is false, and "Do I own the table?" gets "I don't know.").
+ Ownership isn't stored on the things. The brain keeps a list of what it was told. For one thing ("the blue pyramid"), that's the thing; for a kind ("any blocks [not [color red]]"), it's the description, checked against the world whenever ownership matters. The newest entry that fits a thing decides, and if none does, the user doesn't own it: "Do I own the table?" gets "No.", which agrees with "How many things do I own?". Liking, loving, hating and disliking are kept the same way, but they're points on one scale rather than separate yes-or-no facts: hate -2, dislike -1, neutral 0, like 1, love 2 (`icl.feelingLevels`, `Brain.feelingFor`). The robot can own and feel too: `Own x1, you` and `[owned you]`, with "you" naming the robot. "My blocks" are `the blocks [owned]`, and "your pyramid" is `the pyramid [owned you]`. "I own no red blocks" is the same as "I don't own any red blocks", as in Winograd's robot.
 
 **Questions:** `Ask kind target [claim]`
 

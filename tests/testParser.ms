@@ -276,6 +276,13 @@ expect "Thank you.", "Chat thanks"
 
 // Ownership.
 expect "The blue pyramid is mine.", "x1 = the pyramid [color blue]; Own x1"
+// The robot's, and possessives
+expect "You own the blue block.", "x1 = the block [color blue]; Own x1, you"
+expect "The box is yours.", "x1 = the box; Own x1, you"
+expect "Pick up my red block.", "x1 = the block [owned] [color red]; PickUp x1"
+expect "Pick up your red block.", "x1 = the block [owned you] [color red]; PickUp x1"
+expect "Which blocks do you own?", "x1 = which blocks [owned you]; Ask which x1"
+expect "I own no red blocks.", "x1 = no blocks [color red]; Own x1"
 expect "I own blocks which are not red, but I don't own anything which supports a pyramid.",
   "x1 = any blocks [not [color red]]; Own x1; x2 = any thing [supports x3]; x3 = a pyramid; DontOwn x2"
 expect "Do I own the box?", "x1 = the box; Ask yes-no x1 [owned]"

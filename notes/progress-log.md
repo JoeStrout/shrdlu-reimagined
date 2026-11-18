@@ -483,3 +483,113 @@ Noticed: irregular plurals of taught words ("dice" for "die") aren't known.  (Fi
 - **A new rule:** consonant + y becomes -ies ("body"/"bodies").
 - **Taught words too.** After "Call any cube a die", "Which blocks are dice?" works.
 - **If the file can't be read** (as might happen in the web build, untested), only the rules apply.
+
+### 2026-11-18: putting something on what the robot is holding
+
+From `logs/session-002.txt`: "Put Bob under the blue block", with Bob (a green cube) in the hand, got "There's no room on the cube named Bob for the blue block."
+- **The fix.** When the target of a putOn, or the thing to put something next to, is the one being held, the planner sets it down on the table first, as a getRidOf step (`Planner.putOn`).
+- **Explanations still work.** "Why did you put Bob on the table?" gets "To put the blue block on it."
+- **Tests.** "Session 2" and a variation are in the coverage test.
+
+### 2026-11-18: session 3 (other, add, and arrangements)
+
+Problems from `logs/session-003.txt`, now fixed:
+- **"The other green cube."** "Other" is `[other]`: not anything referred to in this sentence or the last (`Brain.mentioned`, `Brain.lastMentioned`). "Another" is "a" plus `[other]`. `Brain.check` saves and restores the list, so trying readings doesn't change it.
+- **"Add the red pyramid"**, after "What's in the box?": this puts it where the things just talked about all are (`AddTo`, `Brain.commonPlace`), or else asks "Add it to what?". "Add X to Y" is just a put.
+- **"A "steeple" is a pyramid on top of a cube."** This was learned as "a pyramid which is on a cube", so a steeple was the pyramid, and "Make one" couldn't build it.
+  - Now a definition whose description is a chain of [on] or [above] links to indefinite things is an arrangement, kept as layers, bottom first (`Brain.patternOf`). Each layer is described without its link.
+  - A steeple is any stack whose top layers fit (`Brain.thingsMatching`).
+  - "Make one" builds it in that order.
+  - "How do you build a steeple?" gets "By putting a pyramid on a cube."
+  - Words taught by example share the same layer code (`Brain.layerParts`, `Brain.layerChoices`).
+- **Building one that would mean taking another apart** now says so: "I can't build another steeple without taking one apart."
+
+Noticed: "Put another block on it" (holding the red cube) put the large red block on the small red cube. That's legal, since it balances centered, but a person would pick a block that fits better. The choice of "a block" ignores how well it would sit.
+
+### 2026-11-18: session 4 (names, "also", and moved clauses)
+
+Problems from `logs/session-004.txt`, now fixed:
+- **Asking a name.** "What is that cube called/named?", "What is its name?", "What is the name of X?": "name" is an attribute. Something with no name gets "It doesn't have a name."
+- **"I also own…", "I own the box too."** "Also" may follow "I" in an ownership statement, and "too" or "as well" may end any sentence.
+- **"What is in the box that I don't own?"** This had taken the clause to be about the box, and listed things the user does own.
+  - A relative clause at the end of a wh-question may now be about the question word. That reading comes first, since a clause on "the box" doesn't help say which box.
+  - When it makes no sense, the brain falls back on the other reading as usual.
+  - The "By X, I assume you mean…" note is now left out when the two readings mean the same things by their phrases ("the box", and "the box that I don't own"). They differ only in what's said about them.
+- **"Remove anything I don't own from the box"** means all of them. For getting rid of things, "any" means every one. "Pick up anything red" still means one.
+- **Complaints include what "one" borrowed:** "I don't see any green cubes on the red cube."
+
+"I like tall boxes" is out of scope (liking).
+
+### 2026-11-18: owning, liking and so on are yes or no
+
+The user pointed out an inconsistency. "How many objects do I own?" counted only what they'd said they owned, but "Do I own Frank?" got "I don't know." After the robot has confidently listed what you own, Frank not being among them means you don't own Frank. So ownership is now false of everything until the user says otherwise. "Do I own Frank?" gets "No." That's also how Winograd's robot answered "Do I own the box?". The "I don't know" came from an early decision of ours, recorded in this log.
+
+**Generalized.** Owning is now one of several **attitudes**, listed in one place, `icl.attitudes`:
+
+| verb | constraint | statements |
+|---|---|---|
+| own | `[owned]` | `Own`, `DontOwn` |
+| like | `[liked]` | `Like`, `DontLike` |
+| love | `[loved]` | `Love`, `DontLove` |
+| hate | `[hated]` | `Hate`, `DontHate` |
+| dislike | `[disliked]` | `Dislike`, `DontDislike` |
+
+- **The same grammar and brain code** serve them all (`Brain.learnAttitude`, `Brain.feels`):
+  - statements: "I [also] [don't] like…"
+  - questions: "Do I like…?", "What do I like?"
+  - relative clauses: "anything which I hate"
+  - kinds as well as particular things: "I like tall blocks"
+  - the newest statement wins
+- **Each attitude is separate.** Not liking something isn't disliking it, and hating it doesn't stop you owning it.
+- **"Want" and "need" are left out on purpose,** since "I want a red block" is far more likely a request.
+- **Adding a verb** is one entry in `icl.attitudes`.
+
+**Not yet:** attitudes of anyone but the user ("Bert likes only yellow cubes"), and of the robot ("Do you like the box?").
+
+### 2026-11-18: feelings are a scale
+
+The user pointed out that like/dislike and love/hate are opposites, so treating each as its own yes-or-no fact let you love and hate the same block. Feelings are now one value per thing: hate -2, dislike -1, neutral 0, like 1, love 2 (`icl.feelingLevels`). The ICL is unchanged (`Like x1`, `DontLike x1`, `[liked]`...); only the brain's reading of it changed (`Brain.feelingFor`).
+- **Saying you feel something** ("I like it") sets the level. The newest statement wins, for kinds as well as particular things.
+- **Saying you don't** moves the level to the nearest one that isn't that feeling, and otherwise leaves it alone:
+  - "I don't like it": like or love becomes neutral.
+  - "I don't love it": love becomes like.
+  - "I don't hate it": hate becomes dislike.
+  - "I don't dislike it": dislike or hate becomes neutral.
+- **Questions use thresholds.** "Do I like it?" is yes for like or love, and "Do I dislike it?" for dislike or hate. Love and hate are the ends.
+- **Owning stays a separate yes-or-no fact** in the generic framework (`icl.attitudes`), kept for other simple properties to come.
+
+### 2026-11-18: yours and mine, and "no"
+
+From Winograd's book (§8) and thesis: SHRDLU learned only what the user owns (or, in the thesis, likes). Its robot "likes everything" by a fixed theorem, and "I own you" made the user the robot's owner. Nothing suggests it took "You own…". We now do, mainly to support possessives.
+- **Whose.** Attitudes (owning, and the feeling scale) are kept per person: the user ("I") or the robot ("you").
+  - In ICL, a second argument names the robot: `Own x1, you`, `[owned you]`.
+  - With none, it's the user, so all the existing ICL is unchanged.
+  - The grammar takes "you" as well as "I" as the subject: "You own the blue block", "Do you own…?", "the blocks you own", "Is the box yours?".
+- **Possessives.** "my" and "your" are "the", plus `[owned]` or `[owned you]`: "Put my blocks in the box", "Pick up your blue block". Complaints say "blocks which you own" and "…which I own". The echo already swapped my/your.
+- **"No" in a statement.** "I own no red blocks" and "I like no pyramids" mean "I don't own (like) any…", as with Winograd's "kicker" theorem.
+- **The robot's feelings** are stored like the user's, neutral until told. "You like the box." / "Do you like the box?"  "Yes."
+
+Not done: Winograd's fixed "the robot likes everything", and "mine" or "yours" standing alone as a noun phrase ("Put mine in the box").  (Both done in the next entry.)
+
+### 2026-11-18: the robot likes everything; "mine" and "yours" alone
+
+- **The robot's feelings start at "like"**, as Winograd's robot "likes everything". The user's start neutral (`startingFeeling`).
+  - "Do you like the box?" gets "Yes, I like everything." when nobody has said otherwise (`Brain.wasTold`).
+  - "You hate the box" changes it as usual.
+- **"Mine" and "yours" as noun phrases** mean "my ones" and "your ones": `the ones [owned]`, borrowing the noun as "one" does.
+  - After "Which blocks are tall?", "Put yours on the table" means the robot's tall blocks.
+  - After "I own the red cube and the green pyramid", "Put mine in the box" means both.
+- **Fixed along the way:**
+  - Ownership statements take joined noun phrases ("I own the red cube and the green pyramid"). After a list with different nouns, "one" borrows just "thing".
+  - "Which cubes are mine?" was read as a statement that they were.
+
+### 2026-11-18: "What about...?" (session 7)
+
+- **"What about X?"**, also "How about X?" and "And X?", repeats the last thing the robot acted on with X in place of part of it (`Brain.whatAbout`; see the parser design note, Part 4).
+  - "Is there anything in the box that I love?"  "No."  "What about on the table?"  "Yes, two things: …"
+  - "How many red blocks are there?"  "What about green ones?"  "And blue ones?"
+  - After a command it does the command again: "Put the green pyramid in the box."  "What about the red cube?" puts the red cube in too.
+  - The copy is made by printing the old program's ICL and reading it back, so the original is never changed.
+- **Negative questions about owning:** "What don't I own?" and "What objects in the box do I not own?" now parse. "Do" before the subject may carry the "not", or the "not" may follow the subject.
+
+Noticed: a "What about…?" that the robot gets wrong would be hard to spot, since it doesn't say what it took the question to be. If that turns out to happen, it could say the full question back: "Is there anything on the table that you love?  Yes, …".

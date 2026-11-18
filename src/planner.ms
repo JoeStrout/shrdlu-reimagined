@@ -158,6 +158,13 @@ Planner.putOn = function(thing, target, near=null)
 	if near and near.hasIndex("other") and refEquals(near.other, thing) then return "I can't put something next to itself."
 	// Already there?
 	if self.restsOnlyOn(thing, target) and (near == null or self.isNear(thing, near)) then return null
+	// If we're holding the thing to put it on (or next to), set that down
+	// first: "Put Bob under the blue block", with Bob in the hand.
+	held = self.world.hand.holding
+	if refEquals(held, target) or (near and near.hasIndex("other") and refEquals(held, near.other)) then
+		problem = self.achieve("getRidOf", [held])
+		if problem then return problem
+	end if
 	return self.moveOnto(thing, target, near)
 end function
 

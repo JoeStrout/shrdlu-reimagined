@@ -42,10 +42,10 @@
 //                  then" is Claim exists x1.  The same parts as a question.
 //   declare      {kind:"declare", verb, args}
 //                  Teaching the robot something: Define, Name, Own,
-//                  DontOwn.  Own x1 says the user owns what x1
-//                  describes: one thing ("the blue pyramid"), or, for a
-//                  description like "any block [not [color red]]", any
-//                  such thing, now or later.
+//                  DontOwn, Like, DontLike...  Own x1 says the user owns
+//                  what x1 describes: one thing ("the blue pyramid"), or,
+//                  for a description like "any block [not [color red]]",
+//                  any such thing, now or later.  (See attitudes.)
 //
 // Constraints (the bracketed parts) are all the same shape: {pred, args}.
 // An arg is a variable name (like "x2"), a word ("red"), a number, or another
@@ -62,8 +62,31 @@ pronouns = {"it": false, "that": false, "this": false, "them": true, "they": tru
 // The kinds of question that aren't asking about an attribute.
 questionKinds = ["exists", "count", "which", "identify", "where", "yes-no", "why", "how", "when", "can", "what", "method"]
 
+// The user's attitudes to things: whether they own them, and how they feel
+// about them.  Each is a verb, and the constraint that says it's so: "I
+// own the box" is Own x1, and "things I own" are [owned].  The user can say
+// they don't, too: "I don't like red blocks" is DontLike x1.
+//
+// Whose attitude it is can be given too: "you" is the robot.  "You own
+// the blue block" is Own x1, you; "the blocks you own" are [owned you].
+// With nobody given, it's the user's.
+//
+// Most are simply true or false, and false of everything until the user
+// says otherwise (so far, just owning).  But feelings are points on one
+// scale (see feelingLevels), so liking and disliking the same thing, or
+// loving and hating it, can't both be so.
+attitudes = {"own": "owned", "like": "liked", "love": "loved", "hate": "hated", "dislike": "disliked"}
+
+// How the user feels about a thing, from hating it to loving it.  Every
+// thing starts at 0, neutral.
+feelingLevels = {"hate": -2, "dislike": -1, "like": 1, "love": 2}
+
 // Statements that teach the robot something, rather than asking it to act.
-declareVerbs = ["define", "defineLike", "name", "own", "dontOwn"]
+declareVerbs = ["define", "defineLike", "name"]
+for verb in attitudes.indexes
+	declareVerbs.push verb
+	declareVerbs.push "dont" + verb[0].upper + verb[1:]
+end for
 
 //----------------------------------------------------------------------
 // Small helpers

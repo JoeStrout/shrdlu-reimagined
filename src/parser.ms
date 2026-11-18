@@ -457,6 +457,10 @@ Parser.nounCore = function(pos)
 		if n.tree.entry.hasIndex("unknown") then continue     // (see tokenize)
 		results.push result(node("NP", [n.tree]), n.next)
 	end for
+	// "Put mine in the box": the ones I own (see Meaning.descriptionStart)
+	for m in self.word(pos, "mine")
+		results.push result(node("NP", [m.tree]), m.next)
+	end for
 	// "Build one": the number one, standing for a noun said earlier.  (It's
 	// read as "one one", and "one" as a noun borrows from what came before.)
 	for d in self.word(pos, "det")
@@ -898,15 +902,23 @@ Parser.youHold = function(pos)
 	return results
 end function
 
-// "I own", "I don't own": a list of parts.
-Parser.iOwn = function(pos)
+// "I own", "I don't own", "I like", "I also hate": a list of parts.  (See
+// icl.attitudes.)
+//
+// The subject may be "you" (the robot) too: "you own the blue block".
+// With outerDo, a "do" came before the subject ("What do I not own?"), so
+// "not" may follow it directly.
+Parser.iOwn = function(pos, outerDo=false)
 	results = []
-	for i in self.word(pos, "i")
-		for d in self.optionalWord(i.next, "do")
-			for n in self.optionalNot(d.next)
-				if n.tree and not d.tree then continue     // "I not own"
-				for v in self.wordWith(n.next, "verb", "own")
-					results.push result([i.tree] + d.tree + n.tree + [v.tree], v.next)
+	for i in self.word(pos, "i") + self.word(pos, "you")
+		for a in self.optionalWord(i.next, "lead")     // "I also own..."
+			if a.tree and a.tree[0].word != "also" then continue
+			for d in self.optionalWord(a.next, "do")
+				for n in self.optionalNot(d.next)
+					if n.tree and not d.tree and not outerDo then continue     // "I not own"
+					for v in self.wordWith(n.next, "verb", "attitude")
+						results.push result([i.tree] + a.tree + d.tree + n.tree + [v.tree], v.next)
+					end for
 				end for
 			end for
 		end for
@@ -1095,7 +1107,8 @@ Parser.sentence = function(pos)
 	  self.whQuestion(pos) + self.identifyQuestion(pos) + self.choiceQuestion(pos) + self.whereQuestion(pos) +
 	  self.attributeQuestion(pos) + self.yesNoQuestion(pos) + self.canQuestion(pos) +
 	  self.didQuestion(pos) + self.eventQuestion(pos) + self.whatDoneQuestion(pos) + self.chat(pos) + self.tellMe(pos) +
-	  self.showMe(pos) + self.methodQuestion(pos) + self.nameStatement(pos) + self.exampleStatement(pos)
+	  self.showMe(pos) + self.methodQuestion(pos) + self.nameStatement(pos) + self.exampleStatement(pos) +
+	  self.whatAbout(pos)
 end function
 
 // "Tell me what you are holding."  "Can you tell me where the red cube is?"
@@ -1176,11 +1189,12 @@ end function
 Parser.ownStatement = function(pos)
 	results = []
 	for o in self.iOwn(pos)
-		for np in self.nounPhrase(o.next)
+		for np in self.nounPhrases(o.next)     // ("I own the red cube and the box")
 			results.push result(node("OWN", o.tree + [np.tree]), np.next)
 		end for
 	end for
 	for np in self.nounPhrase(pos)
+		if whKind(np.tree) then continue     // ("Which cubes are mine?" is a question.)
 		for b in self.word(np.next, "be")
 			for n in self.optionalNot(b.next)
 				for m in self.word(n.next, "mine")
@@ -1235,6 +1249,19 @@ Parser.exampleStatement = function(pos)
 					end for
 				end for
 			end for
+		end for
+	end for
+	return results
+end function
+
+// "What about the table?"  "How about on the table?"  "And the green
+// pyramid?"  The phrase stands in for part of what was said last; the brain
+// works out which part (see Brain.whatAbout).
+Parser.whatAbout = function(pos)
+	results = []
+	for w in self.word(pos, "whatAbout") + self.word(pos, "and")
+		for x in self.nounPhrases(w.next) + self.prepPhrase(w.next)
+			results.push result(sentenceNode("whatAbout", [w.tree, x.tree]), x.next)
 		end for
 	end for
 	return results
@@ -1415,7 +1442,17 @@ end function
 
 // "How many blocks are not in the box?"  "Which cube is sitting on the
 // table?"  "What does the box contain?"  "What is the pyramid supported by?"
+//
+// A relative clause at the end may be about the question word, though
+// it comes after the rest: "What is in the box that I don't own?" asks for
+// the things in the box that I don't own.  It could also be about the box,
+// but "the box" already says which box, so that's not likely.  We try the
+// question word first, and the brain falls back on the other reading if
+// that one makes no sense.  (In "What is on the block that is red?", with
+// several blocks, "the block" alone makes no sense, so the clause is about
+// the block.)
 Parser.whQuestion = function(pos)
+	moved = []     // the readings with a clause at the end, about the question word
 	results = []
 	for np in self.nounPhrase(pos)
 		if whKind(np.tree) == null then continue
@@ -1427,9 +1464,12 @@ Parser.whQuestion = function(pos)
 			for t in self.optionalTime(rest.next)
 				results.push result(sentenceNode("wh", [np.tree, rest.tree] + t.tree), t.next)
 			end for
+			for rel in self.relativeClause(rest.next)
+				moved.push result(sentenceNode("wh", [np.tree, rest.tree, rel.tree]), rel.next)
+			end for
 		end for
 	end for
-	return results
+	return moved + results
 end function
 
 // Nothing, or "have to": a list of parts.
@@ -1530,10 +1570,12 @@ Parser.whRest = function(pos)
 			end for
 		end for
 	end for
-	// "... do I own"
+	// "... do I own", "... don't I own", "... do I not own"
 	for d in self.word(pos, "do")
-		for o in self.iOwn(d.next)
-			results.push result(node("WH", [d.tree] + o.tree), o.next)
+		for n in self.optionalNot(d.next)
+			for o in self.iOwn(n.next, true)
+				results.push result(node("WH", [d.tree] + n.tree + o.tree), o.next)
+			end for
 		end for
 	end for
 	// "... does the box contain", "... is the large red block supporting"
@@ -1594,6 +1636,20 @@ Parser.attributeQuestion = function(pos)
 							results.push result(sentenceNode("attribute", [w.tree, b.tree, t.tree, a.tree, o.tree, np.tree]), np.next)
 						end for
 					end for
+				end for
+			end for
+		end for
+	end for
+	// "what is that cube called", "what is it named": its name
+	for w in self.word(pos, "pronoun")
+		if w.tree.entry.det != "which" then continue
+		for b in self.word(w.next, "be")
+			for np in self.nounPhrase(b.next)
+				for v in self.word(np.next, "verb")
+					if v.tree.entry.form != "ed" or ["call", "name"].indexOf(v.tree.entry.stem) == null then continue
+					s = sentenceNode("attribute", [w.tree, b.tree, v.tree, np.tree])
+					s.attr = "name"
+					results.push result(s, v.next)
 				end for
 			end for
 		end for
@@ -1661,7 +1717,7 @@ Parser.yesNoQuestion = function(pos)
 	// "Do I own the box?"  (The claim comes before the noun phrase here,
 	// but the parts are in the same order as above.)
 	for d in self.word(pos, "do")
-		for o in self.iOwn(d.next)
+		for o in self.iOwn(d.next, true)
 			for np in self.nounPhrase(o.next)
 				results.push result(sentenceNode("yes-no", [d.tree, np.tree, node("REL", o.tree)]), np.next)
 			end for

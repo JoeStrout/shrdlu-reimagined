@@ -47,6 +47,10 @@ Meaning.describe = function(np)
 		if self.itOptions == null then self.itOptions = self.earlierPhrases
 	end if
 	d = self.descriptionStart(np)
+	// "another block" is "a block", and an other one: [other]
+	if np.parts[0].cat == "det" and np.parts[0].entry.hasIndex("other") then d.props.push icl.constraint("other")
+	// "my blocks" are "the blocks [owned]"; "your pyramid", "the pyramid [owned you]"
+	if np.parts[0].cat == "det" and np.parts[0].entry.hasIndex("owner") then d.props.push ownedBy(np.parts[0].entry.owner)
 	var = self.prog.add(d)     // added first, so it gets the lowest number
 	self.phrases.push {"words": parser.wordsOf(np), "var": var}
 	self.describing.push var
@@ -137,6 +141,13 @@ end function
 Meaning.descriptionStart = function(np)
 	first = np.parts[0]
 	if first.cat == "name" then return icl.description(null, first.word)
+	if first.cat == "mine" then
+		// "Mine" as a noun phrase is "my ones": the ones I own, borrowing
+		// the noun from what we were talking about, as "one" does.  ("Which
+		// blocks are green?  Put mine in the box.")  "Yours" is the robot's.
+		// (The [owned] comes from "mine" itself: see constraintFor.)
+		return icl.description("the", "one", true)
+	end if
 	if first.cat == "pronoun" then
 		// "something" = a thing; "it", "them" stay as they are.
 		e = first.entry
@@ -168,7 +179,7 @@ end function
 // null if it adds none (like the noun itself).
 Meaning.constraintFor = function(tree)
 	if tree.cat == "adj" then return self.adjectiveConstraint(tree)
-	if tree.cat == "mine" then return icl.constraint("owned")     // "is mine"
+	if tree.cat == "mine" then return ownedBy(tree.entry.owner)     // "is mine" -> [owned]
 	if tree.cat == "PP" or tree.cat == "CMP" then
 		// "on the table" -> [on x2];  "taller than it" -> [taller x2]
 		relation = tree.parts[0].entry.pred
@@ -254,8 +265,10 @@ Meaning.clauseConstraint = function(tree)
 	  (last.cat == "adj" and last.entry.pred == "held") then
 		// "you are holding", "do you have", "do you have ... in your hand"
 		c = icl.constraint("held")
-	else if last.cat == "verb" and last.entry.hasIndex("own") then
-		c = icl.constraint("owned")     // "which I own"
+	else if last.cat == "verb" and last.entry.hasIndex("attitude") then
+		// "which I own" -> [owned];  "which you own" -> [owned you]
+		c = icl.constraint(icl.attitudes[last.entry.attitude])
+		if parser.partsOfCat(tree, "you") then c.args.push "you"
 	else if tree.cat == "WH" and (last.cat == "verb" or last.cat == "prep") then
 		c = self.turnedAround(tree)
 	else
@@ -345,10 +358,20 @@ Meaning.sentence = function(s)
 			end if
 		end if
 		if c then self.prog.lookup(var).props.push c
+		// "(What is in the box) that I don't own?"
+		for rel in parser.partsOfCat(s, "REL")
+			c = self.constraintFor(rel)
+			if c then self.prog.lookup(var).props.push c
+		end for
 		self.prog.add icl.ask(parser.whKind(np), var)
 	else if s.kind == "attribute" then
-		words = parser.partsOfCat(s, "attribute") + parser.partsOfCat(s, "howAttr")
-		self.prog.add icl.ask(words[0].entry.attr, self.describe(s.parts[-1]))
+		if s.hasIndex("attr") then
+			attr = s.attr     // "what is it called": its name
+		else
+			words = parser.partsOfCat(s, "attribute") + parser.partsOfCat(s, "howAttr")
+			attr = words[0].entry.attr
+		end if
+		self.prog.add icl.ask(attr, self.describe(s.parts[-1]))
 	else if s.kind == "identify" then
 		// "What is it?" -> Ask identify x1
 		self.prog.add icl.ask("identify", self.describe(s.parts[-1]))
@@ -419,11 +442,26 @@ Meaning.sentence = function(s)
 end function
 
 // "I own blocks which are not red" -> Own x1, with x1 = any block [not
-// [color red]].  "I don't own..." -> DontOwn x1.
+// [color red]].  "I don't own..." -> DontOwn x1.  "I like..." -> Like x1.
+// ("The blue pyramid is mine" is owning.)
+//
+// The robot's attitudes name it: "You own the box" -> Own x1, you.  ("The
+// box is yours" too.)
 Meaning.ownership = function(own)
 	verb = "own"
-	if parser.partsOfCat(own, "not") then verb = "dontOwn"
-	return icl.command(verb, [self.describe(parser.partsOfCat(own, "NP")[0])])
+	verbs = parser.partsOfCat(own, "verb")
+	if verbs then verb = verbs[0].entry.attitude
+	if parser.partsOfCat(own, "not") then verb = "dont" + icl.capitalize(verb)
+	args = [self.describe(parser.partsOfCat(own, "NP")[0])]
+	mine = parser.partsOfCat(own, "mine")
+	if parser.partsOfCat(own, "you") or (mine and mine[0].entry.owner == "you") then args.push "you"
+	return icl.command(verb, args)
+end function
+
+// [owned] (the user's), or [owned you] (the robot's).
+ownedBy = function(owner)
+	if owner == "you" then return icl.constraint("owned", ["you"])
+	return icl.constraint("owned")
 end function
 
 // The ICL command for a CMD node: its frame's verb, with a variable for
