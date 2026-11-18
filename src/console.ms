@@ -1,18 +1,22 @@
 // console.ms
 //
-// The ICL console: a panel where you type ICL (the robot's internal language,
-// see icl.ms) straight to the brain, and read its replies.  It's how we talk
-// to the robot until the English parser exists, and it will grow into the
-// "under the hood" panel that shows the ICL for each English sentence.
+// The console: a panel where you talk to the robot in English, and read its
+// replies.  It will grow into the "under the hood" panel that shows how each
+// sentence was understood.
 //
-// Since ICL is usually several lines, a semicolon in the console stands for a
-// line break:
+//   > Pick up a big red block.
+//   OK.
 //
-//   > x1 = a block [color red] [size big]; PickUp x1
+// A line starting with ":" is ICL (the robot's internal language, see
+// icl.ms), which goes straight to the brain.  Since ICL is usually several
+// lines, a semicolon stands for a line break:
+//
+//   > : x1 = a block [color red] [size big]; PickUp x1
 //   OK.
 //
 // Lines starting with "/" are commands to the console itself: /help, /clear,
-// and any that the main program adds (such as /scene).
+// /icl (show the ICL for each English sentence), and any that the main
+// program adds (such as /scene).
 //
 // The console waits for the robot: a reply appears when the robot has finished
 // acting it out, and anything typed meanwhile waits its turn.
@@ -27,8 +31,10 @@ Console.fontSize = 20
 Console.lineGap = 4
 Console.padding = 10
 Console.maxEntries = 500
+Console.showIcl = false  // show the ICL for each English sentence?
 Console.style = {
-	"panel": "#000000AA", "you": "#9FC9F0", "robot": "#F0F0F0", "note": "#9AA3AD"}
+	"panel": "#000000AA", "you": "#9FC9F0", "robot": "#F0F0F0", "note": "#9AA3AD",
+	"icl": "#8FB89A"}
 
 Console.make = function
 	c = new Console
@@ -37,12 +43,13 @@ Console.make = function
 	c.queue = []            // lines typed but not yet handled
 	c.pendingReply = null   // a reply waiting for the robot to finish moving
 	c.rect = null           // where the console was last drawn
-	c.input = textInput.TextInput.make("Type ICL here, for example:  x1 = a block [color red] [size big]; PickUp x1   (/help for more)")
+	c.input = textInput.TextInput.make("Type here, for example:  Pick up a big red block.   (/help for more)")
 	c.input.newlineReplacement = "; "
 	// Commands: name -> {"run": function(console, argument), "help": text}
 	c.commands = {}
 	c.addCommand "help", @helpCommand, "/help: show this help"
 	c.addCommand "clear", @clearCommand, "/clear: clear the transcript"
+	c.addCommand "icl", @iclCommand, "/icl: show (or stop showing) the ICL for each English sentence"
 	return c
 end function
 
@@ -51,7 +58,7 @@ Console.addCommand = function(name, f, helpText)
 end function
 
 // Add a line (or several, split at line breaks) to the transcript.
-// The kind is "you", "robot", or "note"; it sets the color.
+// The kind is "you", "robot", "note", or "icl"; it sets the color.
 Console.say = function(text, kind="note")
 	for line in str(text).split(char(10))
 		self.entries.push {"text": line, "kind": kind}
@@ -86,8 +93,9 @@ pressed = function(key)
 	return rl.IsKeyPressed(key) or rl.IsKeyPressedRepeat(key)
 end function
 
-// Handle one line: echo it, then run it as a command or give it to the brain.
-// The brain's reply is held until the robot finishes moving.
+// Handle one line: echo it, then run it as a command or give it to the brain
+// (as ICL if it starts with ":", otherwise as English).  The brain's reply is
+// held until the robot finishes moving.
 Console.handle = function(line)
 	self.say self.input.prompt + line, "you"
 	line = strip(line)
@@ -96,9 +104,29 @@ Console.handle = function(line)
 		self.runCommand line[1:]
 	else if self.brain == null then
 		self.say "(There's no brain to talk to.)"
+	else if line[0] == ":" then
+		self.pendingReply = self.brain.respond(line[1:].replace(";", char(10)))
 	else
-		self.pendingReply = self.brain.respond(line.replace(";", char(10)))
+		self.pendingReply = self.brain.hear(line)
+		if self.showIcl then self.sayIcl self.brain.lastUnderstanding
 	end if
+end function
+
+// Show the ICL the brain acted on for an English sentence, one line per
+// line of ICL.
+Console.sayIcl = function(understanding)
+	if understanding == null or not understanding.programs then return
+	i = 0
+	if understanding.hasIndex("chosen") then i = understanding.chosen
+	note = ""
+	if understanding.programs.len > 1 then
+		note = "  (reading " + (i + 1) + " of " + understanding.programs.len + ")"
+	end if
+	lines = understanding.programs[i].format.split(char(10))
+	lines[-1] += note
+	for line in lines
+		self.say "    " + line, "icl"
+	end for
 end function
 
 Console.runCommand = function(text)
@@ -114,28 +142,42 @@ Console.runCommand = function(text)
 end function
 
 // Examples for /help, which work in order in the Winograd scene (see
-// tests/testConsole.ms, which checks that they do).  Each is the ICL and
-// the English it stands for.
+// tests/testConsole.ms, which checks that they do).  Each is a sentence,
+// and a hint to go with it (or "").
 Console.examples = [
-  ["x1 = a block [color red] [size big]; PickUp x1", "Pick up a big red block."],
-  ["x1 = the cube [color green] [size small]; e1 = event PickUp x1; Ask why e1",
-     "Why did you pick up the small green cube?"],
-  ["e1 = event Do; Ask why e1", "Why did you do that?"],
-  ["x1 = which thing [in x2]; x2 = the box; Ask which x1", "What is in the box?"],
-  ["x1 = a pyramid; Ask color x1", "What color is a pyramid?"],
-  ["x1 = this; Ask color x1", "What color is this?  (Click on something first.)"]]
+  ["Pick up a big red block.", ""],
+  ["Find a block which is taller than the one you are holding and put it into the box.", ""],
+  ["What does the box contain?", ""],
+  ["Why did you pick up the blue block?", ""],
+  ["Why?", ""],
+  ["How many blocks are not in the box?", ""],
+  ["Is there a large block behind a pyramid?", ""],
+  ["What color is this?", "click on something first"]]
+
+// An example of typing ICL directly.
+Console.iclExample = ": x1 = a pyramid; Ask color x1"
 
 helpCommand = function(console, argument)
-	console.say "Type ICL, using "";"" between lines.  For example (try them in order):"
+	console.say "Talk to the robot in English.  For example (try them in order):"
 	for ex in console.examples
-		console.say "  " + ex[0] + "      (" + ex[1] + ")"
+		if ex[1] then console.say "  " + ex[0] + "   (" + ex[1] + ")" else console.say "  " + ex[0]
 	end for
+	console.say "Start a line with "":"" to type ICL, using "";"" between lines:  " + console.iclExample
 	console.say "Up/Down: earlier lines   Page Up/Down or wheel: scroll   Esc: clear line"
 	names = console.commands.indexes
 	names.sort
 	for name in names
 		console.say console.commands[name].help
 	end for
+end function
+
+iclCommand = function(console, argument)
+	console.showIcl = not console.showIcl
+	if console.showIcl then
+		console.say "Showing the ICL for each sentence."
+	else
+		console.say "Not showing the ICL."
+	end if
 end function
 
 clearCommand = function(console, argument)

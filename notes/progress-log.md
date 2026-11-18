@@ -92,3 +92,53 @@ The app now has a console at the bottom of the window where you type ICL to the 
 
 
 Follow-up after trying it: the placeholder's example, `x1 = a pyramid; Ask color x1`, got "I don't understand which pyramid you mean." "What color is a pyramid?" is about pyramids in general, so the robot now picks any one, the same way it does for "pick up a pyramid", answers about that one, and makes it "it". The `/help` examples are now a list that tells a short story in order, and `testConsole` checks that each one works. The ICL reader also explains its two most likely typos: a lowercase `ask` or command, and `Ask` with no kind of question after it.
+
+### Later: the parser design note
+
+Wrote `notes/design-parser.md` for review. The main decisions: a hand-written grammar, as readable MiniScript functions that return every parse; words and verb frames as data in a lexicon; a separate pass that turns trees into ICL; and a new `Brain.check` that picks the first parse that makes sense in the world (for "Put the blue pyramid on the block in the box"). The 2008 prototype's template matching reached 10 of 136 test sentences, mostly because templates don't compose, which is why it's all grammar this time.
+
+Decided after review: `:` sends ICL from the console; when two readings both make sense, the robot says which it chose, Winograd style ("By 'the block in the box', I assume you mean…"); the grammar rules are code, kept readable with helper functions.
+
+### Later: the parser, step 1 (noun phrases)
+
+- `lexicon.ms`: the words as data, built with small helper functions (`determiner`, `noun`, `adjective`, `preposition`…). Multi-word phrases ("on top of", "to the left of", "how many"), contractions, and inflections by rule ("blocks", "supports", "sitting", plus a short table of irregular verbs).
+- `parser.ms`: the tokenizer (quoted words and taught names become names) and the noun-phrase grammar: determiners (including "at least one of them"), adjectives, nouns, pronouns, prepositional phrases, comparisons ("taller than…"), and relative clauses ("which is not in the box", "which supports a pyramid", "which is sitting on the table", "(that) you are holding"). Every rule returns all its parses.
+- `meaning.ms`: noun-phrase trees → ICL descriptions. A bare plural ("blocks") gets the determiner `any`.
+
+Lesson: a modifier after a noun phrase can attach to more than one noun, as in "taller than the one you are holding". Ordering each noun phrase's parses longest first makes the parser prefer the nearest noun, which is nearly always right; the other reading is still returned for the brain to check.
+
+`tests/testParser.ms` (58 checks): tokens, inflections, about 35 noun phrases, the order of ambiguous readings, a tree, and the complaints ("I don't know the word…", "I didn't understand the part starting with…").
+
+Known limitations, kept as commented-out tests in `tests/testParser.ms` so they aren't forgotten: bare plurals ("blocks which are not red" can mean all, any, or blocks in general, depending on the sentence), and "this"/"that" used as determiners ("that block").
+
+### Later: the parser, steps 2 and 3 (commands and questions)
+
+- **Commands.** Command verbs have frames in the lexicon (`put`: "thing on thing" → `putOn`, "thing in thing" → `putIn`, "down thing" → `putDown`). Particles may come before or after the object ("pick up the block", "pick it up"). Polite openings ("will you please", "can you") are skipped, and commands joined by "and" become several statements.
+- **Questions:** is there…; how many / which / what … (the rest of the question becomes a constraint on the thing asked about, so "What blocks are red?" works); what color/size/shape is…; yes/no with "is" or "does"; why/how/when did you…, "Why?", and "Why did you do that?".
+- "What does the box contain?" and "What is the pyramid supported by?" ask about the *object* of a relation, so the meaning pass turns the relation around (contains → in, supported by → supports).
+- "The one which I told you to pick up" → `[commanded PickUp]`, using the command frames with the object left out.
+- New relation `[supported]` ("Is it supported?").
+- Brain fix found by trying English: answering "when" didn't set the event focus, so a following "Why?" asked about the wrong event. Winograd's "When did you pick it up?" … "Why?" now works.
+
+Played the first half of Winograd's dialogue in English through the brain (taking each sentence's first parse): nearly every turn gives a sensible reply. Still to do: choosing among parses (step 4), and in the brain, "the pyramid" should mean the one just mentioned when that settles it ("What is the pyramid supported by?" right after the box's contents were listed).
+
+`tests/testParser.ms`: 104 checks.
+
+### Later: the parser, step 4 (choosing among readings)
+
+- `Brain.check(program)` works out what every statement refers to without doing anything, and leaves the brain as it was (focus included). It returns the complaint it would make, plus a summary of what the reading means (each statement and the ids of the things it's about).
+- `Brain.hear(text)` parses, checks every reading, and acts on the first that makes sense; if none do, it acts on the first, so the user hears what's wrong with the likeliest reading. If another sensible reading means something different, the robot says which it assumed: `By "the block in the box", I assume you mean the blue block. OK.` The phrase it names is the longest noun phrase the chosen reading has and the other doesn't, which is where the readings part ways.
+- **Inner "the".** "Put the green pyramid on the block in the box" (with no block in the box) has only one sensible reading, but the brain rejected it too: "the block" in "the green pyramid on the block" was ambiguous on its own. Now a "the" inside a description is settled by the description around it: the survivors must all be related to the same one of its candidates. "The pyramid on the cube" is still ambiguous when both cubes have pyramids.
+- Meaning now records the words of each noun phrase with its variable; the parser has `wordsOf(tree)`.
+
+Noticed: when nothing fits, "I don't see any blocks." should say "any blocks in the box" (speech.descriptionPhrase leaves out the constraints). And "the pyramid" still doesn't use what was just mentioned.
+
+`tests/testBrain.ms`: 90 checks (the inner "the", the two ambiguity cases, that checking changes nothing, and English with a taught name).
+
+### Later: the parser, step 5 (the English console)
+
+The console now takes English: each line goes to `Brain.hear`. A line starting with `:` is ICL, as before (`: x1 = a pyramid; Ask color x1`). `/icl` toggles showing, in green under each sentence, the ICL the robot acted on (and which reading it was, when there were several). The `/help` examples are now English and tell a short story in order (pick up a big red block; find a taller block and put it into the box; what does the box contain; why did you pick up the blue block; why; …), and `testConsole` checks that each gets a sensible reply. The input field's hint is English.
+
+Noticed: "Why did you put down the big red block?" (after it was set down to free the hand for another block) gets "I don't remember doing that." That setting-down step doesn't seem to be recorded as a goal; to look at with the Winograd dialogue.
+
+`tests/testConsole.ms`: 57 checks.

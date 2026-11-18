@@ -34,6 +34,7 @@ import "world"
 import "relations"
 import "speech"
 import "planner"
+import "meaning"
 
 containsRef = @world.containsRef
 
@@ -55,6 +56,7 @@ Brain.cache = null      // var -> candidates, so each is only worked out once
 Brain.chosen = null     // var -> the things picked for "a block" etc. in a command
 Brain.busy = null       // vars being resolved right now (to catch loops)
 Brain.problem = null    // a reply explaining what went wrong, or null
+Brain.used = null       // while filtering: see Brain.filter
 
 Brain.make = function(theWorld)
 	b = new Brain
@@ -181,9 +183,19 @@ end function
 
 // Keep only the things that meet every constraint.  Superlatives ("the
 // biggest") are applied last, since they compare the survivors.
+//
+// A "the" inside a constraint is settled by the description around it.
+// In "the green pyramid on the block", there may be several blocks, but
+// only one that the green pyramid is on, and that's the one meant.  So
+// such an inner "the" may have several candidates while we test (see
+// referInside), and afterward the survivors must all be related to the
+// same one of them.
 Brain.filter = function(things, props)
-	result = []
+	savedUsed = self.used
+	passed = []     // the things that meet every constraint...
+	usedBy = []     // ...and for each, inner "the" var -> what it was related to
 	for t in things
+		self.used = {}
 		ok = true
 		for c in props
 			if relations.superlatives.hasIndex(c.pred) then continue
@@ -193,15 +205,65 @@ Brain.filter = function(things, props)
 			end if
 		end for
 		if self.problem then return null
-		if ok then result.push t
+		if ok then
+			passed.push t
+			usedBy.push self.used
+		end if
 	end for
+	self.used = savedUsed
+	result = passed
 	for c in props
 		if relations.superlatives.hasIndex(c.pred) then result = relations.extreme(result, c.pred)
 	end for
+	if not self.innerDefinitesOk(passed, usedBy, result) then return null
 	return result
 end function
 
-// Does one thing meet one constraint?
+// After filtering: does each inner "the" pick out just one thing, among
+// those the survivors are related to?  If not, complain as usual.
+Brain.innerDefinitesOk = function(passed, usedBy, survivors)
+	related = {}     // var -> the things the survivors are related to
+	for i in passed.indexes
+		if not containsRef(survivors, passed[i]) then continue
+		for var in usedBy[i].indexes
+			if not related.hasIndex(var) then related[var] = []
+			for other in usedBy[i][var]
+				if not containsRef(related[var], other) then related[var].push other
+			end for
+		end for
+	end for
+	for var in related.indexes
+		if related[var].len > 1 then
+			d = self.lookup(var)
+			self.fail "I don't understand which " + speech.descriptionPhrase(d, false) + " you mean."
+			return false
+		end if
+	end for
+	return true
+end function
+
+// Note that the thing being tested is related to this candidate for an
+// inner "the" (see filter).
+Brain.noteUsed = function(var, other)
+	if self.used == null then return
+	if not self.used.hasIndex(var) then self.used[var] = []
+	self.used[var].push other
+end function
+
+// What a variable inside a constraint refers to.  Like refer, except for a
+// singular "the X" that fits more than one thing: then we test against all
+// of them, keeping track of which ones matter (see filter).
+Brain.referInside = function(var)
+	d = self.lookup(var)
+	if d == null then return null
+	if d.det != "the" or d.plural then return self.refer(var)
+	things = self.candidates(var)
+	if things == null then return null
+	if things.len <= 1 then return self.refer(var)
+	return {"things": things, "quantity": "some", "n": 0, "inner": var}
+end function
+
+// Does one thing meet one constraint?// Does one thing meet one constraint?
 Brain.test = function(thing, c)
 	pred = c.pred
 	if pred == "not" then return not self.test(thing, c.args[0])
@@ -218,12 +280,15 @@ Brain.test = function(thing, c)
 		if c.args.len != 1 or not icl.isVar(c.args[0]) then
 			return self.fail("([" + pred + "] needs one variable.)")
 		end if
-		ref = self.refer(c.args[0])
+		ref = self.referInside(c.args[0])
 		if ref == null then return false
 		related = @relations.binary[pred]
 		count = 0
 		for other in ref.things
-			if not refEquals(other, thing) and related(self.world, thing, other) then count += 1
+			if not refEquals(other, thing) and related(self.world, thing, other) then
+				count += 1
+				if ref.hasIndex("inner") then self.noteUsed ref.inner, other
+			end if
 		end for
 		return self.quantityOk(ref, count)
 	end if
@@ -651,11 +716,167 @@ Brain.answerAboutEvent = function(q)
 		if not steps then return "I just did it."
 		return "By " + steps.join(", then ") + "."
 	else
-		// When: during whatever the user had asked for.
+		// When: during whatever the user had asked for.  (A "Why?" after
+		// this asks about the same event.)
+		self.focus.event = g
 		root = g.root
 		if refEquals(root, g) then return "When you asked me to."
 		return "While I was " + speech.goalPhrase(w, root, "ing", it) + "."
 	end if
+end function
+
+//----------------------------------------------------------------------
+// Understanding English: choosing among readings
+//----------------------------------------------------------------------
+
+// Respond to a sentence in English.  The parser may find more than one
+// reading; we take the first that makes sense in the world as it is now,
+// and if another sensible reading would mean something different, we say
+// which we assumed, as Winograd's robot did.
+Brain.hear = function(text)
+	r = meaning.understand(text, self.knownNames)
+	self.lastUnderstanding = r      // for showing what happened under the hood
+	if r.error then return r.error
+	pick = self.pickReading(r)
+	r.chosen = pick.index
+	reply = self.respond(r.programs[pick.index])
+	if pick.note then reply = pick.note + " " + reply
+	return reply
+end function
+
+// The names the user has given things, which the parser should treat as
+// names ("superblock").
+Brain.knownNames = function
+	result = []
+	for t in self.world.things
+		result += t.names
+	end for
+	return result
+end function
+
+// Which reading to act on: {index, note}, where note (if any) says which
+// reading we assumed.
+Brain.pickReading = function(r)
+	if r.programs.len == 1 then return {"index": 0, "note": null}
+	checks = []
+	sensible = []
+	for i in r.programs.indexes
+		checks.push self.check(r.programs[i])
+		if checks[i].problem == null then sensible.push i
+	end for
+	// If none make sense, go with the most likely one, so the user hears
+	// what's wrong with it.
+	if not sensible then return {"index": 0, "note": null}
+	best = sensible[0]
+	for i in sensible[1:]
+		if checks[i].summary != checks[best].summary then
+			return {"index": best, "note": self.assumption(r, best, i)}
+		end if
+	end for
+	return {"index": best, "note": null}
+end function
+
+// "By 'the block in the box', I assume you mean the blue block."  The
+// phrase we name is the longest one that the chosen reading has and the
+// other one doesn't: that's where the two readings part ways.
+Brain.assumption = function(r, chosen, other)
+	otherWords = []
+	for p in r.phrases[other]
+		otherWords.push p.words
+	end for
+	phrase = null
+	for p in r.phrases[chosen]
+		if otherWords.indexOf(p.words) != null then continue
+		if phrase == null or p.words.len > phrase.words.len then phrase = p
+	end for
+	if phrase == null then return null
+	things = self.check(r.programs[chosen], phrase.var).referents[phrase.var]
+	if not things then return null
+	return "By """ + phrase.words + """, I assume you mean " + speech.namesFor(self.world, things) + "."
+end function
+
+// Would this program make sense right now?  Works out what each statement
+// refers to, without doing anything, and leaves the brain as it was.
+// Returns {problem, summary, referents}:
+//   problem    the complaint it would make, or null if none
+//   summary    what it means, as text: each statement and the ids of the
+//              things it's about (two readings with the same summary mean
+//              the same thing)
+//   referents  var -> the things each statement's arguments refer to (plus
+//              alsoVar, if given)
+// (Commands are not carried out, so a later statement in the same sentence
+// is checked against the world as it is now.)
+Brain.check = function(prog, alsoVar=null)
+	saved = {"focus": self.focus + {}, "prog": self.prog, "chosen": self.chosen}
+	self.prog = prog
+	self.chosen = {}
+	self.problem = null
+	summary = []
+	referents = {}
+	for statement in prog.statements
+		self.cache = {}
+		self.busy = {}
+		summary.push self.checkStatement(statement, referents)
+		if self.problem then break
+	end for
+	problem = self.problem
+	if alsoVar and not referents.hasIndex(alsoVar) and not problem then
+		referents[alsoVar] = self.choose(alsoVar)
+	end if
+	self.focus = saved.focus
+	self.prog = saved.prog
+	self.chosen = saved.chosen
+	self.problem = null
+	return {"problem": problem, "summary": summary.join("; "), "referents": referents}
+end function
+
+// Check one statement (see check).  Returns its summary.
+Brain.checkStatement = function(statement, referents)
+	if statement.kind == "ask" then
+		words = ["ask", statement.q, statement.attr]
+		vars = [statement.target]
+		if statement.claim then vars += icl.varsUsedIn(statement.claim)
+	else
+		words = [statement.kind, statement.verb]
+		vars = statement.args
+	end if
+	for i in vars.indexes
+		var = vars[i]
+		if not icl.isVar(var) then
+			words.push var      // a word, like the name in "Name x1, superblock"
+			continue
+		end if
+		item = self.lookup(var)
+		if item == null then break
+		if item.kind == "event" then
+			g = self.findGoal(var)
+			if g == null then break
+			words.push g.kind + "@" + timeValue(g.start)
+			continue
+		end if
+		if statement.kind == "command" then
+			things = self.choose(var)
+		else
+			things = self.refer(var)
+			if things != null then things = things.things
+		end if
+		if things == null then break
+		referents[var] = things
+		words.push idsOf(things)
+		// As in carrying it out: the first argument becomes "it", for the
+		// rest of the sentence.
+		if i == 0 then self.noteFocus var, things
+	end for
+	return words.join(" ")
+end function
+
+// The ids of some things, like "b1,p2".
+idsOf = function(things)
+	ids = []
+	for t in things
+		ids.push t.id
+	end for
+	return ids.join(",")
 end function
 
 //----------------------------------------------------------------------

@@ -1,0 +1,221 @@
+# Design Note: The English Parser
+
+Status: draft for review, 2026-11-17.
+
+The parser turns an English sentence into ICL (see `design-world-and-icl.md`, Part 2), which the brain already understands. It decides what the sentence *says*. Which objects it *means* is still the brain's job (§2.4 of that note).
+
+## Part 1: What we learned in 2008
+
+The 2008 prototype mixed an NLTK grammar with template matching (`nl_to_icl.py`, `templateMatch.py`). By its last progress-log entry it converted 10 of 136 test sentences correctly. The problems were:
+
+- **Templates don't compose.** Every new way of combining phrases needed a new pattern, and patterns for noun phrases had to renumber the variables of the patterns around them.
+- **Word order defeated it.** "What are the red blocks?" worked but "What blocks are red?" didn't, because the description was split around "are". A grammar handles this naturally. (See §3.3.)
+- **The meaning was produced as text**, then parsed again. That's fixed already: ICL is now data built with the constructors in `icl.ms`.
+
+So this time the parser is all grammar, and readable.
+
+## Part 2: How it works
+
+```
+"Put the littlest pyramid on top of it."
+      │  tokenize          put the littlest pyramid on-top-of it
+      │  look up words     verb, det, adj (superlative), noun, prep, pronoun
+      │  grammar           every parse tree
+      │  meaning           an ICL Program for each tree
+      │  brain.check       which ones make sense in the world right now
+      ▼
+x1 = the pyramid [littlest]
+x2 = it
+PutOn x1, x2
+```
+
+### 2.1 Tokens
+
+- Lowercase everything, and split off punctuation. A final `?` is kept as a token, because it helps tell questions from commands. Other punctuation is dropped, except quotation marks (see below).
+- Expand contractions: "don't" → "do not", "can't" → "can not", "I'm" → "I am", "you're" → "you are".
+- Join multi-word expressions, longest first, from a list in the lexicon: "on top of", "next to", "in front of", "to the left of", "at least", "get rid of", "as well as". These are treated as one word from then on.
+- A word in quotation marks ("steeple", "superblock") is a **new word**, which a definition or a name is about to introduce. It's never "unknown".
+
+Particle verbs ("pick up", "put down", "clear off", "stack up") are *not* joined at this stage, because the particle can move: "pick it up". The grammar handles them (§3.1).
+
+### 2.2 The lexicon
+
+`src/lexicon.ms` is data: a map from each word to its possible entries. Most words have one entry, but some have several ("block" is only a noun, but "that" is a determiner, a pronoun, and a relative pronoun).
+
+```
+"block":     [{"cat": "noun", "head": "block"}]
+"thing":     [{"cat": "noun", "head": "thing"}]
+"red":       [{"cat": "adj", "pred": "color", "value": "red"}]
+"big":       [{"cat": "adj", "pred": "size", "value": "big"}]
+"large":     [{"cat": "adj", "pred": "size", "value": "big"}]
+"littlest":  [{"cat": "adj", "pred": "littlest"}]
+"taller":    [{"cat": "comparative", "pred": "taller"}]
+"on":        [{"cat": "prep", "pred": "on"}, {"cat": "particle"}]
+"onto":      [{"cat": "prep", "pred": "on"}]
+"behind":    [{"cat": "prep", "pred": "behind"}]
+"it":        [{"cat": "pronoun", "head": "it"}]
+```
+
+Verbs list their **frames**: the shapes they can take, and the ICL each one means.
+
+```
+"put": [{"cat": "verb", "frames": [
+           {"shape": "thing on thing",  "icl": "putOn"},
+           {"shape": "thing in thing",  "icl": "putIn"},
+           {"shape": "thing down",      "icl": "putDown"}]}]
+"pick": [{"cat": "verb", "frames": [
+           {"shape": "up thing",        "icl": "pickUp"}]}]
+"grasp": [{"cat": "verb", "frames": [
+           {"shape": "thing",           "icl": "pickUp"}]}]
+```
+
+In a shape, `thing` is a noun phrase. `on` matches any preposition whose `pred` is `on` (so "on", "onto", and "on top of" all count). `up` and `down` are particles, which may come before or after the object: "pick up the block", "pick the block up". (A pronoun object has to come first, "pick it up", but there's no need to enforce that.) Synonyms are just more entries: "grasp" and "pick up" both mean `pickUp`.
+
+**Inflections** come from a few rules rather than separate entries. Plurals are handled by `icl.singularize`. Verbs ending in -s, -ed, and -ing are reduced to their stems. A short table covers the irregular ones (held, told, did, put, began, built), and comparatives and superlatives are listed in full, since there are only a few. The token remembers its form (plural, past, -ing), because agreement and tense help the grammar ("is" vs. "are"; "did you pick" vs. "pick").
+
+### 2.3 The grammar
+
+The grammar is in `src/parser.ms` as ordinary MiniScript functions, one for each kind of phrase. Each function takes a position in the token list and returns **every** way its phrase can match there, as a list of `[tree, nextPosition]`:
+
+```
+// A noun phrase: a determiner, adjectives, a noun, then any number of
+// prepositional phrases and relative clauses.
+Parser.nounPhrase = function(pos)
+    results = []
+    for d in self.determiner(pos)            // includes "no determiner"
+        for a in self.adjectives(d.next)
+            for n in self.noun(a.next)
+                results += self.modifiers(...)  // PPs and relative clauses
+    ...
+```
+
+This is a top-down parser that backs up: it simply tries everything. That's exponential in theory. In practice, sentences are short and the vocabulary is small, and remembering each function's results at each position (`self.memo`) keeps it fast if it ever needs to be. Each rule stays a few readable lines, and a parse can be traced by hand.
+
+A **tree** is a map: `{"cat": "NP", "parts": [...], "word": ..., "entry": ...}`. Trees print as indented brackets for tests and for the under-the-hood panel:
+
+```
+(S command
+  (V put)
+  (NP the (ADJ littlest) (N pyramid))
+  (PP on-top-of (NP (PRO it))))
+```
+
+The grammar's order of alternatives is its order of **preference**. When two parses both make sense, the first one wins (§4).
+
+### 2.4 Meaning
+
+`src/meaning.ms` walks a tree and builds an ICL `Program`, using the constructors in `icl.ms`. Keeping this separate from the grammar means each part reads cleanly: the grammar says what the phrases are, and the meaning pass says what they mean. It also means the panel can show both.
+
+- Each noun phrase becomes a description with a new variable. Adjectives and modifiers become its constraints.
+- Pronouns stay pronouns (`x2 = it`). The brain's focus already resolves them, including within one sentence ("find a block … and put it into the box"), and only the brain can announce "By 'it', I assume you mean…". (This changes the plan in the world note, §2.3, which had the parser linking "it".)
+- "One" stays `one` (`x1 = a one [size small]`), and the brain borrows the noun, as it does now.
+
+## Part 3: What the grammar covers
+
+### 3.1 Commands
+
+- **Verb and arguments, by frame:** "pick up a big red block", "put it into the box", "clear off the red cube", "get rid of it", "stack up two pyramids", "find a block which…", "put the blue block down", "drop it".
+- **Politeness** is skipped: "please", "will you", "would you", "can you", "could you" before a command. ("Can the table pick up blocks?" is a different thing, a question about ability, because its subject isn't "you".)
+- **Several commands joined by "and"**: "find a block … and put it into the box" gives two statements.
+
+### 3.2 Noun phrases
+
+- **Determiners:** a, an, the, any, every, each, no, some, which, what, numbers ("two pyramids"), "how many", "at least one of".
+- **Adjectives:** color, size, and superlatives ("the littlest pyramid", "the biggest block").
+- **Nouns** and **pronouns** (it, that, this, them, they, one, ones, something, anything).
+- **Prepositional phrases:** "on the table", "in the box", "behind a pyramid", "to the left of the box", "on top of green cubes".
+- **Relative clauses**, with "which", "that", or nothing: "which is taller than…", "which supports a pyramid", "(that) you are holding", "which I told you to pick up". Their meaning is a constraint on the noun phrase: `[taller x2]`, `[supports x3]`, `[held]`, `[commanded PickUp]`.
+- **Comparatives:** "taller than the one…", "narrower than…", "bigger than every pyramid".
+
+### 3.3 Questions
+
+The rule that fixes the 2008 word-order problem: in a question with "is/are", **the predicate becomes a constraint on the thing asked about**. "What blocks are red?", "What are the red blocks?", and "Which blocks are red?" all become `x1 = which blocks [color red]; Ask which x1`.
+
+| English | ICL |
+|---|---|
+| Is there a large block behind a pyramid? | `x1 = a block [size big] [behind x2]` … `Ask exists x1` |
+| How many blocks are not in the box? | `x1 = how-many blocks [not [in x2]]` … `Ask count x1` |
+| Which cube is sitting on the table? | `x1 = which cube [on x2]` … `Ask which x1` |
+| What does the box contain? | `x1 = which thing [in x2]; x2 = the box; Ask which x1` |
+| What is the pyramid supported by? | `x1 = which thing [supports x2]` … `Ask which x1` |
+| What color is it? | `x1 = it; Ask color x1` |
+| Is it supported? | `Ask yes-no x1 [supported]` (a new one-place relation) |
+| Is at least one of them narrower than…? | `Ask yes-no x1 [narrower x2]` |
+| Why did you pick it up? | `e1 = event PickUp x1; Ask why e1` |
+| When / How did you…? | the same, with `Ask when` or `Ask how` |
+| Why? | `e1 = event Do; Ask why e1` (that is, why did you do that) |
+
+Verbs used in questions about the world ("contain", "support", "sit on") map to relations through the lexicon, the same way command verbs map to commands. A stranded preposition at the end ("supported *by*", "what is it sitting *on*") is handled by the question rules.
+
+### 3.4 Later
+
+These are in Winograd's dialogue but come after the first round:
+
+- **Noun-phrase conjunction:** "both of the red blocks and either a green cube or a pyramid".
+- **Ability questions:** "Can a pyramid support a pyramid?" (ICL for these isn't designed yet.)
+- **Definitions, names, and ownership:** "A 'steeple' is a stack which contains…", "Call the biggest block 'superblock'", "I own blocks which are not red…", "The blue pyramid is mine."
+- **Questions about the past with tense:** "Had you touched any pyramid before you put the green one on the little cube?", "What did the red cube support before you started to clean it off?"
+- **Social replies:** "Thank you." (This one is easy and may come early, just for fun.)
+
+## Part 4: Ambiguity
+
+Winograd's dialogue includes "Put the blue pyramid on the block in the box." It has two parses:
+
+1. Put [the blue pyramid] on [the block in the box].
+2. Put [the blue pyramid on the block] in [the box].
+
+The grammar returns both, and the meaning pass turns each into ICL. Then the brain decides which make sense:
+
+- **`Brain.check(program)`** (new) resolves every description without doing anything, and returns the problem it would report, or null. It never moves anything and doesn't change the focus.
+- **A "the" inside a description is settled by the description around it.** In "the green pyramid on the block" there are several blocks, but only one that the green pyramid is on, so that's the one meant. The brain lets such an inner "the" have several candidates while it tests the outer description, and then requires the survivors to be related to just one of them. Without this, the second reading of the sentence above would always fail with "I don't understand which block you mean."
+- The parser takes the **first parse (in grammar order) that checks clean**. If none do, it reports the problem from the first parse, since that's the most likely reading.
+- When more than one parse checks clean and they mean different things, the robot takes the first, and **says which reading it chose**, Winograd style, before its reply. It names the noun phrase that differs between the readings, and what it took that phrase to mean: `By "the block in the box", I assume you mean the large red block.` (The name comes from `speech.ms`, as in the robot's other replies.) The under-the-hood panel will list the other readings. Asking the user which they meant needs a way to treat the next sentence as an answer, which can come later.
+
+## Part 5: When it doesn't understand
+
+The robot should say *what* it didn't understand. In order of how specific it can be:
+
+1. **An unknown word:** `I don't know the word "frobnicate".` (A word in quotes is never unknown; see §2.1.)
+2. **No parse:** the parser remembers how far any rule got, and complains about the next word: `I didn't understand the part starting with "upside".` This is usually close to the real problem.
+3. **A parse, but no meaning:** for example, a verb with the wrong shape ("put the block"). The meaning pass says `I don't know how to put something without somewhere to put it.` These messages come from the frames, so they're written once per verb rather than per sentence.
+
+There is no spelling correction in v1.
+
+## Part 6: The English console
+
+- The console sends **English** by default, and reuses `textInput.ms` as it is.
+- A line starting with **`:`** is sent as ICL, as now (`: x1 = a pyramid; Ask color x1`).
+- **`/icl`** turns on showing the ICL for each English sentence, dimmed, between your sentence and the robot's reply. Later, the under-the-hood panel will show the tree and the brain's notes as well.
+- The `/help` examples become English.
+
+## Part 7: Modules and tests
+
+| file | contents |
+|---|---|
+| `src/lexicon.ms` | the words, as data; multi-word expressions; contractions; inflection rules |
+| `src/parser.ms` | the tokenizer, the grammar functions, trees and their printer, "how far did it get" |
+| `src/meaning.ms` | trees → ICL Programs; error messages for verbs with the wrong shape |
+| `src/brain.ms` | adds `check(program)` |
+| `src/console.ms` | English by default, `:` for ICL, `/icl` |
+
+A small top-level function ties them together: `understand(text, brain)` returns the chosen Program, plus the trees and other Programs for the panel, or a complaint.
+
+Tests:
+
+- **`tests/testParser.ms`:** tokens and inflections, a few tree shapes, and mostly **English → printed ICL**, compared as strings. Many of the expected ICL strings already exist in `tests/testIcl.ms`, written for Winograd's sentences. It also covers the ambiguity choice and the error messages.
+- **`tests/testDialogue.ms`:** the acceptance test. It plays Winograd's dialogue in English, in order, from his starting scene, and checks each reply. Turns we can't handle yet are listed as known gaps, and the list should shrink until it's empty. (`tests/testPlanner.ms` already plays most of the first half in ICL, so this is mostly a matter of putting the English in front.)
+
+## Part 8: Order of work
+
+1. Tokenizer, lexicon, inflections, and noun phrases (determiners, adjectives, PPs, relative clauses, comparatives, superlatives, pronouns, "one") → descriptions.
+2. Commands: frames, particles, politeness, "and".
+3. Questions: exists, count, which, attribute, yes-no, why/how/when, "Why?".
+4. `Brain.check` and choosing among parses.
+5. The English console.
+6. Winograd's dialogue, turn by turn, extending the grammar as each turn needs (including the items in §3.4).
+
+## Part 9: Decided after review
+
+1. **`:` sends ICL** from the console, and `/icl` toggles showing the ICL for each English sentence.
+2. **The robot says which reading it chose** when two make sense, Winograd style (§4).
+3. **The phrase rules are code**, with helper functions wherever they make the rules cleaner to read. The verb frames and the words are data.

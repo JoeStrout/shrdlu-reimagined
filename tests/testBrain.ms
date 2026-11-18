@@ -14,6 +14,7 @@ import "icl"
 import "relations"
 import "speech"
 import "brain"
+import "meaning"
 
 failures = 0
 checks = 0
@@ -191,6 +192,65 @@ check speech.nameFor(hw, hw.thing("b4")) == "the small green cube", "held things
 // Clicking on something: "this" and "that".
 hb.selected = hw.thing("p2")
 expect hb, "x1 = this; Ask color x1", "Red."
+
+//----------------------------------------------------------------------
+// Inner "the": settled by the description around it
+//----------------------------------------------------------------------
+
+w = newWorld
+b = brain.Brain.make(w)
+// There are several blocks, but only one that the green pyramid is on.
+expect b, "x1 = the pyramid [color green] [on x2]; x2 = the block; Ask size x1", "Small."
+expect b, "x1 = which thing [on x2]; x2 = the block [supports x3]; x3 = the pyramid [color green]; Ask which x1", "The green pyramid."
+// But both cubes have a pyramid on them, so this is still ambiguous.
+expect b, "x1 = the pyramid [on x2]; x2 = the cube; Ask color x1", "I don't understand which cube you mean."
+
+//----------------------------------------------------------------------
+// English, and choosing among readings
+//----------------------------------------------------------------------
+
+hear = function(b, text, expected)
+	reply = b.hear(text)
+	check reply == expected, text + nl + "    expected: " + expected + nl + "    got:      " + reply
+end function
+
+// "Put the green pyramid on the block in the box" can mean putting it on
+// a block that's in the box, or putting the pyramid that's on a block into
+// the box.  At first there's no block in the box, so only the second makes
+// sense, and the robot just does it.
+w = newWorld
+b = brain.Brain.make(w)
+hear b, "Put the green pyramid on the block in the box.", "OK."
+check refEquals(w.thing("p1").supporters[0], w.thing("box")), "the green pyramid went into the box"
+
+// With the blue block in the box, both make sense.  The robot takes the
+// first (the nearest noun gets "in the box"), and says so.
+w = newWorld
+b = brain.Brain.make(w)
+hear b, "Put the blue block in the box.", "OK."
+hear b, "Put the green pyramid on the block in the box.",
+  "By ""the block in the box"", I assume you mean the blue block. OK."
+check refEquals(w.thing("p1").supporters[0], w.thing("b5")), "the green pyramid went onto the blue block"
+
+// Checking a reading changes nothing: not the world, and not "it".
+w = newWorld
+b = brain.Brain.make(w)
+hear b, "Pick up the red pyramid.", "OK."
+r = meaning.understand("Put the green pyramid on the block in the box.")
+for prog in r.programs
+	b.check prog
+end for
+check refEquals(w.hand.holding, w.thing("p2")), "still holding the red pyramid"
+check refEquals(b.focus.it, w.thing("p2")), "it is still the red pyramid"
+
+// Words it doesn't know, and sentences it can't parse.
+hear b, "Pick up the frobnicator.", "I don't know the word ""frobnicator""."
+hear b, "Pick up the block the box.", "I didn't understand the part starting with ""the""."
+
+// Names the user has taught are names in English too.
+hear b, "Put it down.", "OK."
+b.respond "x1 = the block [color red] [size big]" + nl + "Name x1, superblock"
+hear b, "What color is superblock?", "Red."
 
 print checks + " checks, " + failures + " failures."
 exit (failures > 0)

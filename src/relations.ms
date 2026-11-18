@@ -7,7 +7,7 @@
 // Each relation is a small function, collected into tables by kind, so the
 // brain can look up an ICL predicate by name:
 //
-//   unary[pred](world, thing)              [held], [clear]
+//   unary[pred](world, thing)              [held], [clear], [supported]
 //   valued[pred](world, thing, word)       [color red], [size big]
 //   binary[pred](world, thing, other)      [on x2], [taller x2]
 //   superlatives[pred]                     [biggest], [littlest] (these pick
@@ -120,6 +120,10 @@ unary.held = function(theWorld, a)
 end function
 unary.clear = function(theWorld, a)
 	return theWorld.isClear(a)
+end function
+// "Is it supported?"  Resting on something (not held, and not the table).
+unary.supported = function(theWorld, a)
+	return a.supporters.len > 0
 end function
 
 //----------------------------------------------------------------------

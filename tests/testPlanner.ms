@@ -115,6 +115,8 @@ expect b, "x1 = the pyramid [color green]; e1 = event GetRidOf x1; Ask how e1",
 // "When did you pick it up?"
 expect b, "x1 = the pyramid [color green]; e1 = event PickUp x1; Ask when e1",
   "While I was stacking up the large red block, the red cube and the small green cube."
+// "Why?"  (Why did you pick it up, that is.)
+expect b, "e1 = event Do; Ask why e1", "To get rid of it."
 expect b, "x1 = the block [color blue]; e1 = event PutIn x1, x2; x2 = the box; Ask when e1", "When you asked me to."
 
 // Events in time: "Why did you pick up the green pyramid while you were

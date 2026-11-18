@@ -2,9 +2,9 @@
 //
 // SHRDLU Reimagined: main program.
 //
-// The world and its display, with the ICL console (console.ms) for talking
-// to the robot's brain in its own internal language until the English
-// parser exists.  You can also operate the hand directly with the mouse,
+// The world and its display, with the console (console.ms) for talking to
+// the robot in English (or in ICL, its internal language).  You can also
+// operate the hand directly with the mouse,
 // to try out the world model, the stability rules, and the animation.
 //
 // Run from the repo root:   ./raylib-miniscript src/main.ms
@@ -66,7 +66,7 @@ sceneCommand = function(c, name)
 end function
 con.addCommand "scene", @sceneCommand, "/scene name: load a scene (" + scenes.names.join(", ") + ")"
 
-con.say "Welcome!  Type ICL below, or /help for examples."
+con.say "Welcome!  Talk to the robot below, or type /help for examples."
 loadScene scenes.names[0]
 
 //----------------------------------------------------------------------

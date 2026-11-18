@@ -400,6 +400,7 @@ The reader is strict about structure but reports problems instead of stopping: e
 | `src/display.ms` | the raylib 3D scene: drawing, camera, picking, the hand animation |
 | `src/scenes.ms` | the starting scenes, as data |
 | `src/textInput.ms` | a one-line text field (editing keys, history, paste), reusable by any console |
-| `src/console.ms` | the ICL console: transcript, `/` commands, and handing ICL to the brain; to grow into the "under the hood" panel |
+| `src/console.ms` | the console: transcript, `/` commands, English to `Brain.hear` (or ICL after `:`); to grow into the "under the hood" panel |
+| `src/lexicon.ms`, `src/parser.ms`, `src/meaning.ms` | the English parser: see `notes/design-parser.md` |
 
 The first milestone (done) was `world.ms` + `geometry.ms` + `display.ms` + the scenes: a visible, clickable world in which hard-coded `grasp`/`moveTo`/`ungrasp` sequences animate correctly. These modules are what the language side will build on.

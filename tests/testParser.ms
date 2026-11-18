@@ -1,0 +1,280 @@
+// testParser.ms
+//
+// Tests for the English parser (parser.ms, lexicon.ms) and for turning its
+// trees into ICL (meaning.ms).  Most checks give some English and the ICL it
+// should mean, in printed form with "; " between lines.  Run from the repo
+// root:
+//
+//   MS_IMPORT_PATH=src miniscript tests/testParser.ms
+
+import "lexicon"
+import "parser"
+import "meaning"
+
+failures = 0
+checks = 0
+check = function(condition, what)
+	globals.checks += 1
+	if condition then return
+	globals.failures += 1
+	print "FAILED: " + what
+end function
+
+// The printed ICL for a program, on one line.
+oneLine = function(prog)
+	return prog.format.replace(char(10), "; ")
+end function
+
+// The ICL for every parse of a noun phrase, best first.
+nounPhraseReadings = function(text, names=null)
+	r = parser.parseNounPhrase(text, names)
+	if r.error then return r.error
+	readings = []
+	for tree in r.trees
+		readings.push oneLine(meaning.programForNounPhrase(tree))
+	end for
+	return readings
+end function
+
+// Check that a noun phrase's best parse means the given ICL.  (Some have
+// other parses too, which the brain may need to choose among; those are
+// checked separately.)
+expectNP = function(text, expected, names=null)
+	readings = nounPhraseReadings(text, names)
+	if readings isa string then
+		check false, """" + text + """: " + readings
+	else
+		check readings[0] == expected, """" + text + """ should mean" + char(10) +
+		  "    " + expected + char(10) + "but its readings are" + char(10) +
+		  "    " + readings.join(char(10) + "    ")
+	end if
+end function
+
+// Check that a noun phrase gives the expected complaint.
+expectNPError = function(text, expected)
+	r = parser.parseNounPhrase(text)
+	check r.error == expected, """" + text + """ should complain " + expected + ", but got " + r.error
+end function
+
+//----------------------------------------------------------------------
+// Tokens and words
+//----------------------------------------------------------------------
+
+texts = function(tokens)
+	result = []
+	for t in tokens
+		result.push t.text
+	end for
+	return result
+end function
+
+check texts(parser.tokenize("Put it ON TOP OF the box!")) == ["put", "it", "on top of", "the", "box"],
+  "lowercase, punctuation, multi-word phrases"
+check texts(parser.tokenize("Is it to the left of the box?")) == ["is", "it", "to the left of", "the", "box", "?"],
+  "the longest phrase wins, and ? is kept"
+check texts(parser.tokenize("I don't own it.")) == ["i", "do", "not", "own", "it"], "contractions"
+toks = parser.tokenize("A ""steeple"" is a stack")
+check toks[1].text == "steeple" and toks[1].quoted and toks[1].entries[0].cat == "name", "a quoted word is a new name"
+toks = parser.tokenize("call it 'superblock'")
+check toks[2].text == "superblock" and toks[2].quoted, "single quotes work too"
+toks = parser.tokenize("superblock", ["superblock"])
+check toks[0].entries[0].cat == "name", "a taught name is a name"
+
+cats = function(word)
+	result = []
+	for e in lexicon.lookup(word)
+		result.push e.cat + "/" + e.form
+	end for
+	return result
+end function
+check cats("blocks") == ["noun/plural"], "blocks is a plural noun"
+check cats("boxes") == ["noun/plural"], "boxes is a plural noun"
+check cats("supports") == ["verb/s"], "supports is a verb with -s"
+check cats("touches") == ["verb/s"], "touches is a verb with -es"
+check cats("holding") == ["verb/ing"], "holding is a verb with -ing"
+check cats("sitting") == ["verb/ing"], "sitting doubles its t"
+check cats("held") == ["verb/ed"], "held is irregular"
+check cats("that") == ["pronoun/base", "relpro/base"], "that is a pronoun and a relative pronoun"
+check cats("frobnicate") == [], "unknown words have no entries"
+
+//----------------------------------------------------------------------
+// Noun phrases
+//----------------------------------------------------------------------
+
+expectNP "a big red block", "x1 = a block [size big] [color red]"
+expectNP "the pyramid", "x1 = the pyramid"
+expectNP "the littlest pyramid", "x1 = the pyramid [littlest]"
+expectNP "a large green cube", "x1 = a cube [size big] [color green]"
+expectNP "two pyramids", "x1 = 2 pyramids"
+expectNP "every red block", "x1 = every block [color red]"
+expectNP "how many blocks", "x1 = how-many blocks"
+expectNP "which cube", "x1 = which cube"
+expectNP "blocks", "x1 = any blocks"
+expectNP "a small one", "x1 = a one [size small]"
+expectNP "it", "x1 = it"
+expectNP "them", "x1 = them"
+expectNP "this one", "x1 = this"
+expectNP "something", "x1 = a thing"
+expectNP "at least one of them", "x1 = at-least-1 of them"
+expectNP "superblock", "x1 = superblock", ["superblock"]
+
+// Modifiers
+expectNP "a block on the table", "x1 = a block [on x2]; x2 = the table"
+expectNP "the blue block in the box", "x1 = the block [color blue] [in x2]; x2 = the box"
+expectNP "a block behind a pyramid", "x1 = a block [behind x2]; x2 = a pyramid"
+expectNP "the red cube to the left of the box", "x1 = the cube [color red] [leftOf x2]; x2 = the box"
+expectNP "a block taller than the box", "x1 = a block [taller x2]; x2 = the box"
+expectNP "the one you are holding", "x1 = the one [held]"
+expectNP "the one which you are holding", "x1 = the one [held]"
+expectNP "a block which is taller than the one you are holding",
+  "x1 = a block [taller x2]; x2 = the one [held]"
+expectNP "the green cube which supports a pyramid",
+  "x1 = the cube [color green] [supports x2]; x2 = a pyramid"
+expectNP "blocks which are not red", "x1 = any blocks [not [color red]]"
+expectNP "blocks which are not in the box", "x1 = any blocks [not [in x2]]; x2 = the box"
+expectNP "anything which supports a pyramid", "x1 = any thing [supports x2]; x2 = a pyramid"
+expectNP "a cube which is sitting on the table", "x1 = a cube [on x2]; x2 = the table"
+expectNP "a cube which sits on the table", "x1 = a cube [on x2]; x2 = the table"
+expectNP "a pyramid which does not support anything", "x1 = a pyramid [not [supports x2]]; x2 = any thing"
+expectNP "a block which is supported by the table", "x1 = a block [on x2]; x2 = the table"
+
+// Ambiguity: which noun does "in the box" belong to?
+readings = nounPhraseReadings("the pyramid on the block in the box")
+check readings.len == 2, "two readings for the pyramid on the block in the box: " + readings
+if readings.len == 2 then
+	check readings[0] == "x1 = the pyramid [on x2]; x2 = the block [in x3]; x3 = the box", "first, the block is in the box"
+	check readings[1] == "x1 = the pyramid [on x2] [in x3]; x2 = the block; x3 = the box", "then, the pyramid is in the box"
+end if
+readings = nounPhraseReadings("a block which is taller than the one you are holding")
+check readings.len == 2 and readings[1] == "x1 = a block [taller x2] [held]; x2 = the one",
+  "the less likely reading of ""...taller than the one you are holding"" comes second"
+check nounPhraseReadings("a big red block").len == 1, "most noun phrases have just one parse"
+check nounPhraseReadings("the green cube which supports a pyramid").len == 1, "...like this one"
+
+// KNOWN LIMITATIONS, to be addressed later.  These tests are commented out
+// because they fail; the expected ICL shows roughly what we want, but each
+// needs a decision about ICL first.
+//
+// 1. Bare plurals.  "Blocks which are not red" now gets the determiner
+//    "any", but a bare plural means different things in different places:
+//    "I own blocks which are not red" means all of them, "on top of green
+//    cubes" means any, and "Can the table pick up blocks?" means blocks in
+//    general.  ICL needs a way to say "generic", or the meaning pass needs
+//    to choose by context.
+//expectNP "blocks which are not red", "x1 = every block [not [color red]]"    // (in "I own ...")
+//
+// 2. "That" (and "this") as a determiner.  "That block" should mean the
+//    block that was clicked on, or the one just mentioned, but ICL has only
+//    the pronouns "this" and "that", with no noun.  It might become a
+//    determiner, as in:
+//expectNP "that block", "x1 = that block"
+//expectNP "this red pyramid", "x1 = this pyramid [color red]"
+
+// Trees
+r = parser.parseNounPhrase("the littlest pyramid")
+check parser.formatTree(r.trees[0]) == "(NP the (ADJ littlest) (N pyramid))", "tree: " + parser.formatTree(r.trees[0])
+
+//----------------------------------------------------------------------
+// Sentences
+//----------------------------------------------------------------------
+
+// The ICL for every reading of a sentence, best first (or the complaint).
+readingsOf = function(text, names=null)
+	r = meaning.understand(text, names)
+	if r.error then return r.error
+	readings = []
+	for prog in r.programs
+		readings.push oneLine(prog)
+	end for
+	return readings
+end function
+
+// Check that a sentence's best reading means the given ICL.
+expect = function(text, expected, names=null)
+	readings = readingsOf(text, names)
+	if readings isa string then
+		check false, """" + text + """: " + readings
+	else
+		check readings[0] == expected, """" + text + """ should mean" + char(10) +
+		  "    " + expected + char(10) + "but its readings are" + char(10) +
+		  "    " + readings.join(char(10) + "    ")
+	end if
+end function
+
+// Commands
+expect "Pick up a big red block.", "x1 = a block [size big] [color red]; PickUp x1"
+expect "Grasp the pyramid.", "x1 = the pyramid; PickUp x1"
+expect "pick it up", "x1 = it; PickUp x1"
+expect "Pick the red pyramid up", "x1 = the pyramid [color red]; PickUp x1"
+expect "Put it into the box.", "x1 = it; x2 = the box; PutIn x1, x2"
+expect "Put the littlest pyramid on top of it.", "x1 = the pyramid [littlest]; x2 = it; PutOn x1, x2"
+expect "Put a small one onto the green cube which supports a pyramid.",
+  "x1 = a one [size small]; x2 = the cube [color green] [supports x3]; x3 = a pyramid; PutOn x1, x2"
+expect "put the blue block down", "x1 = the block [color blue]; PutDown x1"
+expect "put down the blue block", "x1 = the block [color blue]; PutDown x1"
+expect "drop it", "x1 = it; PutDown x1"
+expect "Clear off the red cube.", "x1 = the cube [color red]; ClearOff x1"
+expect "Get rid of it.", "x1 = it; GetRidOf x1"
+expect "Stack up two pyramids.", "x1 = 2 pyramids; Stack x1"
+expect "Find a block which is taller than the one you are holding and put it into the box.",
+  "x1 = a block [taller x2]; x2 = the one [held]; Find x1; x3 = it; x4 = the box; PutIn x3, x4"
+expect "Please pick up the red pyramid.", "x1 = the pyramid [color red]; PickUp x1"
+expect "Will you please pick up the red pyramid?", "x1 = the pyramid [color red]; PickUp x1"
+expect "Can you pick up the red pyramid please?", "x1 = the pyramid [color red]; PickUp x1"
+
+// Questions
+expect "Is there a large block behind a pyramid?",
+  "x1 = a block [size big] [behind x2]; x2 = a pyramid; Ask exists x1"
+expect "How many blocks are not in the box?", "x1 = how-many blocks [not [in x2]]; x2 = the box; Ask count x1"
+expect "How many things are on top of green cubes?",
+  "x1 = how-many things [on x2]; x2 = any cubes [color green]; Ask count x1"
+expect "How many pyramids are there?", "x1 = how-many pyramids; Ask count x1"
+expect "Which cube is sitting on the table?", "x1 = which cube [on x2]; x2 = the table; Ask which x1"
+expect "What blocks are red?", "x1 = which blocks [color red]; Ask which x1"
+expect "What is in the box?", "x1 = which thing [in x2]; x2 = the box; Ask which x1"
+expect "What does the box contain?", "x1 = which thing [in x2]; x2 = the box; Ask which x1"
+expect "What is the pyramid supported by?", "x1 = which thing [supports x2]; x2 = the pyramid; Ask which x1"
+expect "What supports the pyramid?", "x1 = which thing [supports x2]; x2 = the pyramid; Ask which x1"
+expect "What color is it?", "x1 = it; Ask color x1"
+expect "What size is the blue pyramid?", "x1 = the pyramid [color blue]; Ask size x1"
+expect "Is it supported?", "x1 = it; Ask yes-no x1 [supported]"
+expect "Is the red cube on the table?", "x1 = the cube [color red]; x2 = the table; Ask yes-no x1 [on x2]"
+expect "Is the box not red?", "x1 = the box; Ask yes-no x1 [not [color red]]"
+expect "Does the box contain a pyramid?", "x1 = the box; x2 = a pyramid; Ask yes-no x1 [contains x2]"
+expect "Is at least one of them narrower than the one which I told you to pick up?",
+  "x1 = at-least-1 of them; x2 = the one [commanded PickUp]; Ask yes-no x1 [narrower x2]"
+expect "Why did you pick it up?", "x1 = it; e1 = event PickUp x1; Ask why e1"
+expect "When did you pick it up?", "x1 = it; e1 = event PickUp x1; Ask when e1"
+expect "Why did you clear off the red cube?", "x1 = the cube [color red]; e1 = event ClearOff x1; Ask why e1"
+expect "Why?", "e1 = event Do; Ask why e1"
+expect "Why did you do that?", "e1 = event Do; Ask why e1"
+expect "How did you do it?", "e1 = event Do; Ask how e1"
+
+// The classic ambiguity, in a command.
+readings = readingsOf("Put the blue pyramid on the block in the box.")
+check readings.len == 2, "two readings of put the blue pyramid on the block in the box: " + readings
+if readings.len == 2 then
+	check readings[0] == "x1 = the pyramid [color blue]; x2 = the block [in x3]; x3 = the box; PutOn x1, x2",
+	  "first: put it on the block that's in the box"
+	check readings[1] == "x1 = the pyramid [color blue] [on x2]; x2 = the block; x3 = the box; PutIn x1, x3",
+	  "then: put the pyramid that's on the block into the box"
+end if
+
+r = parser.parse("Pick up a big red block.")
+check parser.formatTree(r.trees[0]) == "(S command (CMD (V pick) up (NP a (ADJ big) (ADJ red) (N block))))",
+  "command tree: " + parser.formatTree(r.trees[0])
+
+//----------------------------------------------------------------------
+// Complaints
+//----------------------------------------------------------------------
+
+expectNPError "a frobnicated block", "I don't know the word ""frobnicated""."
+expectNPError "a blocks", "I didn't understand the part starting with ""blocks""."
+expectNPError "the red", "That seems to stop in the middle."
+expectNPError "a block on", "That seems to stop in the middle."
+check parser.parse("Pick up a frobnicated block.").error == "I don't know the word ""frobnicated"".", "unknown word in a sentence"
+check parser.parse("Pick up the block the box.").error == "I didn't understand the part starting with ""the"".",
+  "where a sentence goes wrong: " + parser.parse("Pick up the block the box.").error
+
+print checks + " checks, " + failures + " failures"
+exit

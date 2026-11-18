@@ -1,6 +1,6 @@
 // testConsole.ms
 //
-// Tests for the text-input widget and the ICL console, without a window
+// Tests for the text-input widget and the console, without a window
 // (using the stand-in for raylib).  Run from the repo root:
 //
 //   MS_IMPORT_PATH=src:tests miniscript tests/testConsole.ms
@@ -136,14 +136,14 @@ lastLines = function(n)
 end function
 
 // A question: echoed, then answered (on the next frame, since nothing moves).
-frame c, "x1 = the pyramid [color blue]; Ask size x1", ["ENTER"]
-check lastLines(1) == ["> x1 = the pyramid [color blue]; Ask size x1"], "the line is echoed"
+frame c, "What size is the blue pyramid?", ["ENTER"]
+check lastLines(1) == ["> What size is the blue pyramid?"], "the line is echoed"
 c.update
 check lastLines(1) == ["Large."], "and answered: " + lastLines(1)
 check c.entries[-1].kind == "robot" and c.entries[-2].kind == "you", "entry kinds"
 
 // A command: the reply waits until the robot has finished moving.
-frame c, "x1 = a block [color red] [size big]; PickUp x1", ["ENTER"]
+frame c, "Pick up a big red block.", ["ENTER"]
 check w.hand.holding != null, "the robot picked it up"
 c.update true
 c.update true
@@ -151,20 +151,34 @@ check c.entries[-1].kind == "you", "no reply while busy"
 c.update false
 check lastLines(1) == ["OK."], "then the reply"
 
-// Lines typed while busy wait their turn.
-rl.type "x1 = it; Ask color x1"
+// Lines typed while busy wait their turn.  (This one is ICL.)
+rl.type ": x1 = it; Ask color x1"
 rl.press "ENTER"
 c.update true
 rl.endFrame
 check c.queue.len == 1 and c.entries[-1].text == "OK.", "queued while busy"
 c.update
 c.update
-check lastLines(2) == ["> x1 = it; Ask color x1", "Red."], "then handled: " + lastLines(2)
+check lastLines(2) == ["> : x1 = it; Ask color x1", "Red."], "then handled: " + lastLines(2)
+
+// /icl shows the ICL for each English sentence.
+frame c, "/icl", ["ENTER"]
+check c.showIcl, "/icl turns it on"
+frame c, "What color is it?", ["ENTER"]
+check lastLines(3) == ["> What color is it?", "    x1 = it", "    Ask color x1"], "the ICL is shown: " + lastLines(3)
+check c.entries[-1].kind == "icl", "in its own color"
+c.update
+check lastLines(1) == ["Red."], "then the reply"
+frame c, "/icl", ["ENTER"]
+check not c.showIcl, "/icl again turns it off"
 
 // Errors and console commands.
-frame c, "x1 = a block [on x2", ["ENTER"]
+frame c, ": x1 = a block [on x2", ["ENTER"]
 c.update
 check lastLines(1)[0].indexOf("couldn't read") != null, "bad ICL"
+frame c, "Pick up the frobnicator.", ["ENTER"]
+c.update
+check lastLines(1) == ["I don't know the word ""frobnicator""."], "English the robot can't understand: " + lastLines(1)
 frame c, "/nonsense", ["ENTER"]
 check lastLines(1) == ["There's no command /nonsense.  Try /help."], "unknown command"
 frame c, "/help", ["ENTER"]
@@ -182,9 +196,11 @@ hw.load scenes.byName.winograd
 hb = brain.Brain.make(hw)
 hb.selected = hw.thing("box")
 for ex in console.Console.examples
-	reply = hb.respond(ex[0].replace(";", char(10)))
+	reply = hb.hear(ex[0])
 	check reply.indexOf("(") != 0 and reply.indexOf("I don't") == null, "help example: " + ex[0] + " -> " + reply
 end for
+reply = hb.respond(console.Console.iclExample[1:].replace(";", char(10)))
+check reply.indexOf("(") != 0 and reply.indexOf("I don't") == null, "the ICL example: " + reply
 
 // Long replies wrap; scrolling stays in range.
 c.say "word " * 100, "robot"

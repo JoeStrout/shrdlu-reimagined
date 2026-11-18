@@ -9,9 +9,9 @@ A spiritual successor to Winograd's SHRDLU, written in MiniScript on raylib-mini
 - **Deterministic physics.** Use a symbolic support graph plus simple stability rules and scripted animations. Don't use a rigid-body solver.
 - **A successor, not a port.** Don't imitate or copy Winograd's code. Using his published dialogue as a test, and his ideas (goal-directed planning, episodic memory for "why" questions), is the intent.
 
-## Architecture (planned)
+## Architecture
 
-English → parser (grammar in `assets/grammar/`) → ICL, as structured MiniScript maps, not text → brain (reference resolution, question answering, a goal-directed planner that keeps a goal and event history) → reply generator. The world model is the single source of truth; the renderer only displays it.
+English → parser (`lexicon.ms` for the words, `parser.ms` for the grammar, `meaning.ms` for trees → ICL; see `notes/design-parser.md`) → ICL, as structured MiniScript maps, not text → brain (reference resolution, question answering, a goal-directed planner that keeps a goal and event history) → reply generator. The world model is the single source of truth; the renderer only displays it.
 
 ## Prior art
 
@@ -29,6 +29,7 @@ The 2008–09 Python prototype is in `../shrdlutng` (kept unchanged for history)
   - `MS_IMPORT_PATH=src miniscript tests/testIcl.ms`
   - `MS_IMPORT_PATH=src miniscript tests/testBrain.ms`
   - `MS_IMPORT_PATH=src miniscript tests/testPlanner.ms`
-  - `MS_IMPORT_PATH=src:tests miniscript tests/testConsole.ms` (the text-input widget and the ICL console, with fake key presses)
+  - `MS_IMPORT_PATH=src:tests miniscript tests/testConsole.ms` (the text-input widget and the console, with fake key presses)
+  - `MS_IMPORT_PATH=src miniscript tests/testParser.ms` (English → ICL)
 - Claude's sandbox can't open a window, so it can't run the app or `tests/screenshots.ms`. Ask the user to run them; `tests/screenshots.ms` saves PNGs that Claude can then look at.
 - MiniScript gotchas: `outer` and `end` are keywords (don't use them as names, even as `x.end`); `indexOf` and `==` compare maps by value, so use `refEquals` for identity; there's no built-in `max`/`min`; a function literal nested inside a module's function can't see that module's top-level names (only its enclosing function's locals and true globals), so use plain loops instead of little lambdas.
