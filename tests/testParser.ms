@@ -90,7 +90,7 @@ end function
 check cats("blocks") == ["noun/plural"], "blocks is a plural noun"
 check cats("boxes") == ["noun/plural"], "boxes is a plural noun"
 check cats("supports") == ["verb/s"], "supports is a verb with -s"
-check cats("touches") == ["verb/s"], "touches is a verb with -es"
+check cats("touches") == ["verb/s", "verb/s"], "touches is a verb with -es (a relation, and an action)"
 check cats("holding") == ["verb/ing"], "holding is a verb with -ing"
 check cats("sitting") == ["verb/ing"], "sitting doubles its t"
 check cats("held") == ["verb/ed"], "held is irregular"
@@ -246,6 +246,28 @@ expect "When did you pick it up?", "x1 = it; e1 = event PickUp x1; Ask when e1"
 expect "Why did you clear off the red cube?", "x1 = the cube [color red]; e1 = event ClearOff x1; Ask why e1"
 expect "Why?", "e1 = event Do; Ask why e1"
 expect "Why did you do that?", "e1 = event Do; Ask why e1"
+expect "Why did you move the red pyramid?", "x1 = the pyramid [color red]; e1 = event Move x1; Ask why e1"
+expect "Move it onto the box.", "x1 = it; x2 = the box; PutOn x1, x2"
+expect "Empty the box.", "x1 = the box; ClearOff x1"
+expect "Clear out the box.", "x1 = the box; ClearOff x1"
+expect "Clean the box out.", "x1 = the box; ClearOff x1"
+expect "Empty it out.", "x1 = it; ClearOff x1"
+
+// Did the robot do something (at some time)?
+expect "Did you pick up the red cube?", "x1 = the cube [color red]; e1 = event PickUp x1; Ask exists e1"
+expect "Had you touched any pyramid before you put the green one on the little cube?",
+  "x1 = any pyramid; e1 = event Touch x1 [before e2]; x2 = the one [color green]; x3 = the cube [size small]; e2 = event PutOn x2, x3; Ask exists e1"
+expect "Did you touch a block after you picked it up?", "x1 = a block; e1 = event Touch x1 [after e2]; x2 = it; e2 = event PickUp x2; Ask exists e1"
+
+// Asking about the things the robot did something to, and the past.
+expect "How many objects did you touch while you were doing it?",
+  "x1 = how-many objects [did e1]; e1 = event Touch x1 [while e2]; e2 = event Do; Ask count x1"
+expect "Which green cube did you move?", "x1 = which cube [color green] [did e1]; e1 = event Move x1; Ask which x1"
+expect "What did you put in the box?", "x1 = which thing [did e1]; x2 = the box; e1 = event PutIn x1, x2; Ask which x1"
+expect "Did you touch any pyramid while you were stacking up the red cube?",
+  "x1 = any pyramid; e1 = event Touch x1 [while e2]; x2 = the cube [color red]; e2 = event Stack x2; Ask exists e1"
+expect "What did the red cube support before you started to clean it off?",
+  "x1 = which thing [before e1 [on x2]]; x2 = the cube [color red]; x3 = it; e1 = event ClearOff x3; Ask which x1"
 expect "How did you do it?", "e1 = event Do; Ask how e1"
 expect "Why did you clear off that cube?", "x1 = the cube; e1 = event ClearOff x1; Ask why e1"
 expect "Call the biggest block ""superblock"".", "x1 = the block [biggest]; Name x1, superblock"

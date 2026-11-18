@@ -160,7 +160,22 @@ Meaning.sentence = function(s)
 		// "how many blocks" + "are not in the box".
 		np = s.parts[0]
 		var = self.describe(np)
-		c = self.constraintFor(s.parts[1])
+		wh = s.parts[1]
+		times = parser.partsOfCat(s, "TIME")
+		cmds = parser.partsOfCat(wh, "CMD")
+		if cmds then
+			// "How many objects did you touch (while you were doing it)?"
+			c = self.didConstraint(var, cmds[0], times)
+		else
+			c = self.constraintFor(wh)
+			// "What did the red cube support before you started to clean
+			// it off?" asks about then, not now.
+			if c then
+				for t in times
+					c = icl.constraint(t.parts[0].entry.time, [self.timeEvent(t), c])
+				end for
+			end if
+		end if
 		if c then self.prog.lookup(var).props.push c
 		self.prog.add icl.ask(parser.whKind(np), var)
 	else if s.kind == "attribute" then
@@ -172,6 +187,9 @@ Meaning.sentence = function(s)
 	else if s.kind == "event" then
 		q = s.parts[0].entry.q
 		self.prog.add icl.ask(q, self.event(s))
+	else if s.kind == "did" then
+		// "Did you pick it up?" asks whether there was such an event.
+		self.prog.add icl.ask("exists", self.event(s))
 	else if s.kind == "statement" then
 		for part in parser.partsOfCat(s, "OWN")
 			self.prog.add self.ownership(part)
@@ -206,8 +224,11 @@ Meaning.arguments = function(cmd)
 	return args
 end function
 
-// The event a why/how/when question asks about.  Plain "Why?" and "Why
-// did you do that?" mean the event we were just talking about: "event Do".
+// The event a sentence asks about, with its time: "you touched any
+// pyramid before you put the green one on the little cube" ->
+//   e1 = event Touch x1 [before e2]
+// Plain "Why?" and "Why did you do that?" mean the event we were just
+// talking about: "event Do".
 Meaning.event = function(s)
 	cmds = parser.partsOfCat(s, "CMD")
 	if cmds then
@@ -215,7 +236,36 @@ Meaning.event = function(s)
 	else
 		e = icl.event("do")
 	end if
-	return self.prog.add(e)
+	var = self.prog.add(e)
+	self.addTimes e, parser.partsOfCat(s, "TIME")
+	return var
+end function
+
+// Time constraints on an event, from TIME nodes: [before e2].
+Meaning.addTimes = function(e, times)
+	for t in times
+		e.props.push icl.constraint(t.parts[0].entry.time, [self.timeEvent(t)])
+	end for
+end function
+
+// The event a time clause mentions: "(before) you put the green one on the
+// little cube" -> e2 = event PutOn x2, x3.  "(While you were) doing it" is
+// the event we were talking about: e2 = event Do.
+Meaning.timeEvent = function(t)
+	cmds = parser.partsOfCat(t, "CMD")
+	if not cmds then return self.prog.add(icl.event("do"))
+	return self.prog.add(icl.event(cmds[0].frame.icl, self.arguments(cmds[0])))
+end function
+
+// "(objects which) you touched while you were doing it" -> [did e1], with
+//   e1 = event Touch x1 [while e2]
+// where x1 is the thing being described: it's a thing that, put in the
+// command's missing place, makes e1 something the robot did.
+Meaning.didConstraint = function(var, cmd, times)
+	e = icl.event(cmd.frame.icl, [var] + self.arguments(cmd))
+	eVar = self.prog.add(e)
+	self.addTimes e, times
+	return icl.constraint("did", [eVar])
 end function
 
 // The ICL for every reading of a sentence: {programs, trees, phrases,

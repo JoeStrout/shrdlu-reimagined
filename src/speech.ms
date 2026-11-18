@@ -223,6 +223,8 @@ goalPhrase = function(theWorld, goal, form, it=null)
 		if refEquals(t, it) and goal.kind != "stack" then names.push "it" else names.push nameFor(theWorld, t, false)
 	end for
 	entry = goalVerbs[goal.kind]
+	// Clearing off the box is emptying it.
+	if goal.kind == "clearOff" and goal.args[0].shape == "box" then entry = ["empty", "emptying", ""]
 	verb = entry[form == "ing"]
 	particle = entry[2]
 	if goal.kind == "putOn" then return verb + " " + names[0] + placePhrase(theWorld, goal.args[1])

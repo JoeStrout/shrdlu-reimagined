@@ -573,7 +573,7 @@ end function
 // Commands
 //----------------------------------------------------------------------
 
-particles = ["up", "down", "off"]
+particles = ["up", "down", "off", "out"]
 
 // The ways a frame's shape can be said.  A particle right before the
 // object may also come after it: "pick up the block", "pick the block up".
@@ -595,11 +595,12 @@ end function
 
 // A command verb with everything one of its frames calls for:
 // "put the block in the box".  With missingObject, the frame's first noun
-// phrase is left out: "pick up".
-Parser.command = function(pos, missingObject=false)
+// phrase is left out: "pick up".  `form` is the verb's form: "base" for a
+// command, or "ed" for "had you touched" and "before you put".
+Parser.command = function(pos, missingObject=false, form="base")
 	results = []
 	for v in self.wordWith(pos, "verb", "frames")
-		if v.tree.entry.form != "base" then continue
+		if v.tree.entry.form != form then continue
 		for f in v.tree.entry.frames
 			if missingObject then
 				shapes = [withoutObject(f.shape)]
@@ -700,7 +701,7 @@ Parser.sentence = function(pos)
 	return self.commandSentence(pos) + self.statementSentence(pos) +
 	  self.existsQuestion(pos) + self.whQuestion(pos) +
 	  self.attributeQuestion(pos) + self.yesNoQuestion(pos) +
-	  self.eventQuestion(pos) + self.thanks(pos)
+	  self.didQuestion(pos) + self.eventQuestion(pos) + self.thanks(pos)
 end function
 
 // Telling the robot something: "The blue pyramid is mine."  "I own blocks
@@ -799,7 +800,9 @@ Parser.whQuestion = function(pos)
 	for np in self.nounPhrase(pos)
 		if whKind(np.tree) == null then continue
 		for rest in self.whRest(np.next)
-			results.push result(sentenceNode("wh", [np.tree, rest.tree]), rest.next)
+			for t in self.optionalTime(rest.next)
+				results.push result(sentenceNode("wh", [np.tree, rest.tree] + t.tree), t.next)
+			end for
 		end for
 	end for
 	return results
@@ -815,6 +818,15 @@ Parser.whRest = function(pos)
 	for b in self.word(pos, "be")
 		for t in self.word(b.next, "there")
 			results.push result(node("WH", [b.tree, t.tree]), t.next)
+		end for
+	end for
+	// "... did you touch", "... did you put in the box": a command with
+	// the question's noun phrase as its object.
+	for d in self.word(pos, "do")
+		for y in self.word(d.next, "you")
+			for c in self.command(y.next, true)
+				results.push result(node("WH", [d.tree, y.tree, c.tree]), c.next)
+			end for
 		end for
 	end for
 	// "... do I own"
@@ -892,6 +904,71 @@ Parser.yesNoQuestion = function(pos)
 		for o in self.iOwn(d.next)
 			for np in self.nounPhrase(o.next)
 				results.push result(sentenceNode("yes-no", [d.tree, np.tree, node("REL", o.tree)]), np.next)
+			end for
+		end for
+	end for
+	return results
+end function
+
+// "Did you pick up the red cube?"  "Had you touched any pyramid before
+// you put the green one on the little cube?"  Whether the robot did
+// something (at some time).
+Parser.didQuestion = function(pos)
+	results = []
+	for a in self.word(pos, "do") + self.word(pos, "have")
+		if a.tree.cat == "do" then form = "base" else form = "ed"
+		for y in self.word(a.next, "you")
+			for c in self.command(y.next, false, form)
+				for t in self.optionalTime(c.next)
+					results.push result(sentenceNode("did", [a.tree, y.tree, c.tree] + t.tree), t.next)
+				end for
+			end for
+		end for
+	end for
+	return results
+end function
+
+// Nothing, or a time clause: a list of results whose trees are lists of
+// parts (a TIME node, or nothing).
+Parser.optionalTime = function(pos)
+	results = [result([], pos)]
+	for w in self.word(pos, "timeWord")
+		for y in self.word(w.next, "you")
+			for r in self.pastAction(y.next)
+				results.push result([node("TIME", [w.tree, y.tree] + r.tree)], r.next)
+			end for
+		end for
+	end for
+	return results
+end function
+
+// What can follow "before you" or "while you": a list of parts, ending
+// with a CMD node (or "doing it", for whatever we were talking about).
+//   "put the green one on the little cube"
+//   "were stacking up the red cube..."
+//   "started to clean it off" (which means the same as "cleaned it off":
+//      "before" and "while" go by when an action started anyway)
+//   "were doing it"
+Parser.pastAction = function(pos)
+	results = []
+	for c in self.command(pos, false, "ed")
+		results.push result([c.tree], c.next)
+	end for
+	for b in self.word(pos, "be")
+		for c in self.command(b.next, false, "ing")
+			results.push result([b.tree, c.tree], c.next)
+		end for
+		for d in self.word(b.next, "doing")
+			for p in self.plainPronoun(d.next)
+				results.push result([b.tree, d.tree, p.tree], p.next)
+			end for
+		end for
+	end for
+	for s in self.wordWith(pos, "verb", "start")
+		if s.tree.entry.form != "ed" then continue
+		for t in self.word(s.next, "to")
+			for c in self.command(t.next)
+				results.push result([s.tree, t.tree, c.tree], c.next)
 			end for
 		end for
 	end for

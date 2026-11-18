@@ -104,10 +104,13 @@ sizeWords = {"big": "big", "large": "big", "huge": "big",
   "small": "small", "little": "small", "tiny": "small"}
 
 // Does this thing fit a noun like "block" or "pyramid"?
-// "Thing" and "object" fit anything but the table.
+// "Thing" fits anything (so "What is it on?" can be answered "The table."),
+// but "object" fits only what's on the table ("How many objects did you
+// touch?").
 nounFits = function(thing, noun)
 	if noun == "cube" then return thing.shape == "block" and thing.isCube
-	if noun == "thing" or noun == "object" then return thing.shape != "table"
+	if noun == "object" then return thing.shape != "table"
+	if noun == "thing" then return true
 	return thing.shape == noun
 end function
 
@@ -190,16 +193,21 @@ end function
 
 // Directions, as seen by the user at the front of the table.  `a` is behind
 // `b` if a's center is at or beyond b's back edge (and so on for the others).
+// The table is under everything, so it's in no direction from anything.
 binary.behind = function(theWorld, a, b)
+	if a.shape == "table" or b.shape == "table" then return false
 	return a.z <= bounds(b).minZ + eps
 end function
 binary.inFrontOf = function(theWorld, a, b)
+	if a.shape == "table" or b.shape == "table" then return false
 	return a.z >= bounds(b).maxZ - eps
 end function
 binary.leftOf = function(theWorld, a, b)
+	if a.shape == "table" or b.shape == "table" then return false
 	return a.x <= bounds(b).minX + eps
 end function
 binary.rightOf = function(theWorld, a, b)
+	if a.shape == "table" or b.shape == "table" then return false
 	return a.x >= bounds(b).maxX - eps
 end function
 

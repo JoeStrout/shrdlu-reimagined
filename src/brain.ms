@@ -60,6 +60,7 @@ Brain.chosen = null     // var -> the things picked for "a block" etc. in a comm
 Brain.busy = null       // vars being resolved right now (to catch loops)
 Brain.problem = null    // a reply explaining what went wrong, or null
 Brain.used = null       // while filtering: see Brain.filter
+Brain.bound = null      // var -> [thing], while testing [did e1] (see didWith)
 
 Brain.make = function(theWorld)
 	b = new Brain
@@ -131,6 +132,7 @@ end function
 // Stage 1: every object that fits a description's noun and constraints,
 // ignoring its determiner.
 Brain.candidates = function(var)
+	if self.bound and self.bound.hasIndex(var) then return self.bound[var]
 	if self.cache.hasIndex(var) then return self.cache[var]
 	d = self.lookup(var)
 	if d == null then return null
@@ -293,6 +295,8 @@ Brain.test = function(thing, c)
 	end if
 	if pred == "commanded" then return self.wasCommanded(thing, c.args)
 	if pred == "owned" then return self.owns(thing) == true
+	if pred == "did" then return self.didWith(thing, c.args[0])
+	if (pred == "before" or pred == "after") and c.args.len == 2 then return self.testThen(thing, c)
 	if relations.unary.hasIndex(pred) then return relations.unary[pred](self.world, thing)
 	if relations.valued.hasIndex(pred) then return relations.valued[pred](self.world, thing, c.args[0])
 	if relations.binary.hasIndex(pred) then
@@ -312,6 +316,47 @@ Brain.test = function(thing, c)
 		return self.quantityOk(ref, count)
 	end if
 	return self.fail("I don't know what """ + pred + """ means.")
+end function
+
+// [did e1]: is this thing one the robot did e1 to?  ("The objects you
+// touched": e1 = event Touch x1, and x1 is the description being worked
+// out.)  We try the event with just this thing in that place.
+Brain.didWith = function(thing, eventVar)
+	e = self.lookup(eventVar)
+	if e == null then return false
+	if e.kind != "event" then return self.fail("([did " + eventVar + "] needs an event.)")
+	// The description being worked out right now is the one this is about.
+	place = null
+	for a in e.args
+		if self.busy.hasIndex(a) then place = a
+	end for
+	if place == null then return self.fail("([did " + eventVar + "] needs an event about what it describes.)")
+	if self.bound == null then self.bound = {}
+	self.bound[place] = [thing]
+	goals = self.matchingGoals(eventVar)
+	self.bound.remove place
+	return goals != null and goals.len > 0
+end function
+
+// [before e1 [on x2]]: was the constraint true just before the robot
+// started e1?  ([after e1 ...]: just after it finished.)  We put the world
+// back the way it was then, test, and put it back.  Descriptions inside
+// the constraint keep their present meaning ("the red cube" is the red
+// cube), so they're worked out first.
+Brain.testThen = function(thing, c)
+	g = self.findGoal(c.args[0])
+	if g == null then return false
+	inner = c.args[1]
+	for a in inner.args
+		if icl.isVar(a) and a[0] == "x" then self.candidates a
+	end for
+	if c.pred == "before" then time = g.start else time = g.finish
+	w = self.world
+	now = w.snapshot
+	w.restore w.snapshotAt(time)
+	result = self.test(thing, inner)
+	w.restore now
+	return result
 end function
 
 // Stage 2: what a description refers to, with its determiner taken into
@@ -401,6 +446,7 @@ end function
 
 Brain.answer = function(q)
 	if q.q == "why" or q.q == "how" or q.q == "when" then return self.answerAboutEvent(q)
+	if q.q == "exists" and icl.isVar(q.target) and q.target[0] == "e" then return self.answerDid(q.target)
 	if q.q == "exists" then return self.answerExists(q.target)
 	if q.q == "count" then return self.answerCount(q.target)
 	if q.q == "which" then return self.answerWhich(q.target)
@@ -445,9 +491,10 @@ end function
 Brain.answerWhich = function(var)
 	things = self.candidates(var)
 	if things == null then return null
+	noun = self.lookup(var).head
+	if not things and noun == "thing" then return "Nothing."
 	if not things then return "None."
 	self.noteFocus var, things
-	noun = self.lookup(var).head
 	if noun == "thing" then
 		names = speech.namesFor(self.world, things)
 	else
@@ -538,6 +585,9 @@ commandGoals = {
   "find": "find"}
 
 Brain.command = function(cmd)
+	// "Move the red pyramid" (with nowhere to move it) makes sense as a
+	// question ("Why did you move it?"), but not as a command.
+	if cmd.verb == "move" then return self.fail("Where should I move it to?  You can say, for example, ""Move it onto the box.""")
 	if not commandGoals.hasIndex(cmd.verb) then
 		return "Sorry, I don't know how to " + cmd.verb + "."
 	end if
@@ -666,22 +716,31 @@ end function
 // Questions about the past: why, how, and when
 //----------------------------------------------------------------------
 
-// The kinds of goal each event verb can mean.
+// The kinds of goal each event verb can mean, in order of preference.
+// To touch something, the robot picks it up or puts something on it.
+// Getting rid of something is putting it on the table (see goalArgsFit).
+// "Move" is any goal that carried a thing somewhere: putting it on
+// something, or getting rid of it, or, failing those, picking it up.
 eventGoals = {
-  "pickUp": "grasp", "grasp": "grasp",
-  "putOn": "putOn", "putIn": "putOn", "putDown": "putOn",
-  "clearOff": "clearOff", "cleanOff": "clearOff",
-  "getRidOf": "getRidOf",
-  "stack": "stack", "stackUp": "stack"}
+  "pickUp": ["grasp"], "grasp": ["grasp"],
+  "putOn": ["putOn", "getRidOf"], "putIn": ["putOn"], "putDown": ["putOn", "getRidOf"],
+  "move": ["putOn", "getRidOf", "grasp"],
+  "touch": ["grasp", "putOn"],
+  "clearOff": ["clearOff"], "cleanOff": ["clearOff"],
+  "getRidOf": ["getRidOf"],
+  "stack": ["stack"], "stackUp": ["stack"]}
 
 // Times are [turn, step]; this makes them easy to compare.
 timeValue = function(t)
 	return t[0] * 100000 + t[1]
 end function
 
-// Which goal an event description means: the most recent one that fits.
-// "Do" with no arguments ("why did you do that?") means the goal we were
-// just talking about.
+// Which goal an event description means: the most recent one that fits,
+// unless the one we were just talking about fits.  (After "Had you
+// touched any pyramid before ...?"  "Yes, the green one.", "When did you
+// pick it up?" means that time, not some later one.)  "Do" with no
+// arguments ("why did you do that?") means the goal we were just talking
+// about.
 Brain.findGoal = function(var)
 	e = self.lookup(var)
 	if e == null then return null
@@ -690,8 +749,20 @@ Brain.findGoal = function(var)
 		if self.focus.event == null then return self.fail("I don't know what you mean.")
 		return self.focus.event
 	end if
+	goals = self.matchingGoals(var)
+	if goals == null then return null
+	if not goals then return self.fail("I don't remember doing that.")
+	if self.focus.event and containsRef(goals, self.focus.event) then return self.focus.event
+	return goals[0]
+end function
+
+// Every goal an event description fits: the preferred kinds first (see
+// eventGoals), and the most recent first within each kind.  (Not goals
+// that failed: the robot tried those, but didn't do them.)  Returns null
+// if there's a problem.
+Brain.matchingGoals = function(var)
+	e = self.lookup(var)
 	if not eventGoals.hasIndex(e.verb) then return self.fail("I don't know what it means to " + e.verb + ".")
-	kind = eventGoals[e.verb]
 	// What each argument refers to.
 	refs = []
 	for a in e.args
@@ -706,35 +777,69 @@ Brain.findGoal = function(var)
 		if other == null then return null
 		others.push other
 	end for
-	for i in range(self.world.goals.len - 1, 0, -1)
-		g = self.world.goals[i]
-		if g.kind != kind then continue
-		if not self.goalArgsFit(g, refs) then continue
-		if not self.goalTimesFit(g, e.props, others) then continue
-		return g
+	result = []
+	for kind in eventGoals[e.verb]
+		for i in range(self.world.goals.len - 1, 0, -1)
+			g = self.world.goals[i]
+			if g.kind != kind or g.status == "failed" then continue
+			if not self.goalArgsFit(g, e.verb, refs) then continue
+			if not self.goalTimesFit(g, e.props, others) then continue
+			result.push g
+		end for
 	end for
 	if self.problem then return null
-	return self.fail("I don't remember doing that.")
+	return result
 end function
 
-// Does each argument of the event match the goal?  (For a stack, which has
-// any number of things, each argument just has to be one of them.)
-Brain.goalArgsFit = function(g, refs)
+// "Did you pick up the red cube?"  "Had you touched any pyramid before you
+// put the green one on the little cube?"  If the event has an indefinite
+// argument ("any pyramid"), we say which things it turned out to be: "Yes,
+// the green one."
+Brain.answerDid = function(var)
+	goals = self.matchingGoals(var)
+	if goals == null then return null
+	if not goals then return "No."
+	self.focus.event = goals[0]
+	e = self.lookup(var)
+	for i in e.args.indexes
+		ref = self.refer(e.args[i])
+		if ref.quantity != "some" then continue
+		things = []
+		for g in goals
+			for t in self.goalArg(g, e.verb, i)
+				if containsRef(ref.things, t) and not containsRef(things, t) then things.push t
+			end for
+		end for
+		self.noteFocus e.args[i], things
+		return "Yes, " + self.countedNames(e.args[i], things) + "."
+	end for
+	return "Yes."
+end function
+
+// Does each argument of the event match the goal?
+Brain.goalArgsFit = function(g, verb, refs)
 	for i in refs.indexes
-		if g.kind == "stack" then
-			candidates = g.args
-		else if i < g.args.len then
-			candidates = [g.args[i]]
-		else
-			return false
-		end if
 		found = false
 		for t in refs[i]
-			if containsRef(candidates, t) then found = true
+			if containsRef(self.goalArg(g, verb, i), t) then found = true
 		end for
 		if not found then return false
 	end for
 	return true
+end function
+
+// What fills the i'th place of an event verb ("touch", "putOn"...) in a
+// goal, as a list:
+//   - for a stack, any of the things stacked
+//   - for getting rid of something, the place is the table
+//   - things are touched by picking them up, or by putting something on
+//     them, so the thing touched in a putOn is the one it was put on
+// and otherwise, the goal's i'th argument.
+Brain.goalArg = function(g, verb, i)
+	if g.kind == "stack" then return g.args
+	if g.kind == "getRidOf" and i == 1 then return [self.world.table]
+	if verb == "touch" and g.kind == "putOn" then i += 1
+	return g.args[i:i+1]
 end function
 
 // Check an event's time constraints: [before e2], [after e2], [while e2].
@@ -747,7 +852,8 @@ Brain.goalTimesFit = function(g, props, others)
 		else if c.pred == "after" then
 			ok = timeValue(g.start) >= timeValue(other.finish)
 		else if c.pred == "while" then
-			ok = not refEquals(g, other) and timeValue(g.start) >= timeValue(other.start) and
+			// (Inclusive: picking up a block is touching it while you pick it up.)
+			ok = timeValue(g.start) >= timeValue(other.start) and
 			  timeValue(g.finish) <= timeValue(other.finish)
 		else
 			self.fail "I don't know what """ + c.pred + """ means for an event."

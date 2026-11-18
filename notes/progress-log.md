@@ -218,3 +218,60 @@ Turns 25–27 ("When did you pick it up?" and its whys) are about the time the r
   The old rule listed everything to its left, which came out as "…which is to the left of a large green cube, the red pyramid, the blue block, the box and the blue pyramid".
 
 Now 23 turns as Winograd's (or better), 22 known gaps, no failures.
+
+### 2026-11-18: "Why did you move…?"
+
+"Why did you move the red pyramid?" didn't parse: "move" only had frames with a place ("move it onto the box"). So the parser got as far as the "?" and complained about that.
+- "Move" now also has a frame with no place, `Move x1`.
+- As an event, it means any goal that carried the thing somewhere. A put-on or a get-rid-of is preferred, then a pick-up (`eventGoals` now lists kinds in order of preference).
+- As a command, "Move the red pyramid." asks where to.
+
+Noticed:
+- "Which green cube did you move?" doesn't parse. We have no relative clauses about past actions yet ("the cube you moved").
+- When a description fits nothing, the complaint still drops its constraints: "I don't see any green cubes."
+
+### 2026-11-18: emptying the box
+
+- **New phrasings.** "Empty the box", "empty out the box", "clear out the box" and "clean out the box" all mean `ClearOff`. "Out" is now a particle, so "clean the box out" and "empty it out" work too.
+- **How the robot says it.** For the box, clearing off is "emptying": "To empty the box."
+- **Matching the robot's goals.** Getting rid of something always puts it on the table. So "Why did you put X on the table?" and "Why did you put down X?" now find a get-rid-of goal as well as a put-on goal. That fixes the earlier note: "Why did you put down the big red block?" now gets "To pick up the blue block."
+- **"Nothing."** "What does the box contain?" now gets "Nothing." when the box is empty, rather than "None."; "Which cube…?" still gets "None."
+
+### 2026-11-18: turn 24 ("Had you touched any pyramid before…?")
+
+Turns 24–27 now pass: 27 turns as Winograd's (or better), 18 known gaps.
+
+- **Questions about whether the robot did something.**
+  - Forms: "Did you pick up the red cube?" and "Had/Have you touched any pyramid?"
+  - These can take a time clause: "…before/after you put the green one on the little cube".
+  - The parser has `didQuestion` and `optionalTime`. `Parser.command` takes the verb form it wants: "base", or "ed" for "had you touched" and "before you put".
+  - In ICL, this is `Ask exists e1`, with `e1 = event Touch x1 [before e2]`. The `[before]`, `[after]` and `[while]` constraints were already there.
+- **Answers.**
+  - "No." if nothing fits.
+  - Otherwise the things that fill an indefinite argument: "Yes, the green one."
+  - "Yes." if every argument is definite.
+- **Touching.** The robot touches a thing by picking it up, or by putting something on it. (Winograd's turn 31 counts four objects touched during the turn-17 stack, including the large red block, which only had a cube put on it.)
+  - `Brain.goalArg` says what fills each place of an event verb in a goal.
+  - That covers stacks, getting rid of something (onto the table), and touching.
+- **The event in focus.** The event just found becomes the one in focus, and a later question whose event description fits it means that event, rather than the most recent match (`Brain.findGoal`). That's how "When did you pick it up?" (turn 25) knows to mean the pick-up during turn 17, not the later one in turn 21.
+
+Noticed: "Did you pick up the green pyramid before you put it in the box?" gets "No.", because the pick-up was *part of* putting it in the box, not before it. Loosening "before" to include sub-steps would break turn 25 (it would find the later pick-up), so it stays strict for now.
+
+### 2026-11-18: turns 31 and 32 (what the robot touched, and the past)
+
+Both pass now: 29 turns as Winograd's (or better), 16 known gaps.
+
+- **Turn 31: "How many objects did you touch while you were doing it?"**
+  - `[did e1]` is a new constraint. `x1 = how-many objects [did e1]`, `e1 = event Touch x1 [while e2]` means the things the robot did e1 to.
+  - The brain tries the event with just the thing being tested in that place (`Brain.didWith`, with `Brain.bound`).
+  - The same form gives "Which green cube did you move?" and "What did you put in the box?".
+- **Time clauses.** These now also take "were stacking up…", "were doing it" (the event in focus) and "started to clean it off" (`Parser.pastAction`). Questions starting "what", "which" or "how many" can end in a time clause.
+- **Turn 32: "What did the red cube support before you started to clean it off?"**
+  - The time is wrapped around the constraint: `[before e1 [on x2]]`.
+  - The brain sets the world back to how it was then, using `World.snapshotAt` and `World.restore`, tests, and restores the present.
+- **Along the way:**
+  - Failed attempts don't count as things the robot did. ("What did you put in the box?" after "There's no room…" is "Nothing.")
+  - "While" includes the event itself: picking up a block touches it while picking it up.
+  - "Thing" now includes the table, so "What is the small green cube on?" is "The table." rather than "Nothing.". "Object" still means only what's on the table. Left/right/behind/in front never apply to the table.
+
+Noticed: "What did the box contain before you put the large red block in it?" gets "I don't remember doing that." That's because "it" means the block (the focus), not the box mentioned earlier in the same sentence. Pronouns pointing back within one sentence are still to do.

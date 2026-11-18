@@ -75,7 +75,8 @@ check relations.valued.size(w, b3, "large") and relations.valued.size(w, b1, "li
 check relations.extreme([b1, b2, b3, b4, b5], "tallest") == [b5], "tallest"
 check relations.extreme([b1, b2, b3, b4, b5], "littlest").len == 2, "littlest keeps ties"
 check relations.nounFits(b1, "cube") and not relations.nounFits(b3, "cube") and relations.nounFits(b1, "block"), "cubes are blocks"
-check not relations.nounFits(table, "thing") and relations.nounFits(box, "thing"), "the table isn't a thing"
+check relations.nounFits(table, "thing") and not relations.nounFits(table, "object") and relations.nounFits(box, "object"), "the table is a thing, but not an object"
+check not relations.binary.leftOf(w, table, box) and not relations.binary.behind(w, b1, table), "the table is in no direction"
 
 // Side by side, in the playground: the green cubes b4 and b5 start half a
 // unit apart, so they're next to each other but not touching.
@@ -262,6 +263,62 @@ hear b, "Pick up the block the box.", "I didn't understand the part starting wit
 hear b, "Put it down.", "OK."
 b.respond "x1 = the block [color red] [size big]" + nl + "Name x1, superblock"
 hear b, "What color is superblock?", "Red."
+
+// "Move" with nowhere to move it is for questions, not commands.  A thing
+// that was moved was put somewhere, or got rid of, or at least picked up.
+w = newWorld
+b = brain.Brain.make(w)
+hear b, "Move the red pyramid.", "Where should I move it to?  You can say, for example, ""Move it onto the box."""
+hear b, "Why did you move the red pyramid?", "I don't remember doing that."
+hear b, "Pick up the large red block.", "OK."
+hear b, "Why did you move the small green cube?", "To clean off the large red block."
+hear b, "Why did you move the large red block?", "Because you asked me to."
+hear b, "Put the red pyramid on the table.", "OK."
+hear b, "Why did you move the red pyramid?", "Because you asked me to."
+
+// Did the robot do something?  Touching something means picking it up.  An
+// indefinite thing ("any pyramid") gets named, and "it" and the event
+// we're talking about become the ones found.
+w = newWorld
+b = brain.Brain.make(w)
+hear b, "Did you pick up the red cube?", "No."
+hear b, "Pick up the large red block.", "OK."
+hear b, "Did you touch any block?", "Yes, two of them: the small green cube and the large red one."
+hear b, "Did you touch a cube?", "Yes, the small green one."
+hear b, "Put the large red block on the small green cube.", "OK."
+hear b, "Did you touch any cube after you picked up the large red block?", "Yes, the small green one."
+hear b, "Did you touch any pyramid before you picked up the large red block?", "No."
+// The event just found is the one meant, even if there's a later one: the
+// small green cube was moved again just now, but this asks about the first time.
+hear b, "Had you touched any cube before you put the large red block on the small green cube?", "Yes, the small green one."
+hear b, "Why did you pick it up?", "To get rid of it."
+
+// Questions about what the robot did things to, and about the past.  A
+// failed attempt isn't something it did.  ("Thing" includes the table, so
+// "What is it on?" can say so.)
+w = newWorld
+b = brain.Brain.make(w)
+hear b, "Which green cube did you move?", "None."
+hear b, "Pick up the large red block.", "OK."
+hear b, "Which green cube did you move?", "The small green one."
+hear b, "Put the large red block in the box.", "There's no room for the large red block in the box."
+hear b, "What did you put in the box?", "Nothing."
+hear b, "What did the large red block support before you picked it up?", "The small green cube."
+hear b, "What did the large red block support after you picked it up?", "Nothing."
+hear b, "What is the small green cube on?", "The table."
+hear b, "What was the small green cube on before you picked up the large red block?", "The large red block."
+hear b, "How many objects did you touch while you were picking up the large red block?", "Two of them."
+
+// Emptying the box.  Each thing taken out was put on the table, by way of
+// getting rid of it, and a question about putting it there finds that.
+w = newWorld
+b = brain.Brain.make(w)
+hear b, "Put the blue block in the box.", "OK."
+hear b, "Empty the box.", "OK."
+hear b, "What does the box contain?", "Nothing."
+hear b, "Why did you put the blue block on the table?", "To empty the box."
+hear b, "Why did you put down the blue pyramid?", "To empty the box."
+hear b, "How did you empty the box?", "By getting rid of the blue block, then getting rid of the blue pyramid."
 
 // Ownership: particular things, or kinds of thing.  A kind is checked when
 // it matters, so it covers things that come to fit it later, and what was

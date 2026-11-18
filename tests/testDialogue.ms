@@ -152,24 +152,18 @@ turn "How many things are on top of green cubes?",
 turn "2", "Three of them.",
   {"gap": "answering the robot's question"}
 
-turn "Had you touched any pyramid before you put the green one on the little cube?", "Yes, the green one.",
-  {"gap": "past perfect, ""touch"", and ""before"" clauses",
-   "icl": "x1 = the pyramid [color green]; Ask exists x1"}    // (so that "it" is the green pyramid)
+turn "Had you touched any pyramid before you put the green one on the little cube?", "Yes, the green one."
 
 // The next three turns are about the time the robot picked up the green
-// pyramid during turn 17, not the later time in turn 21.  It's turn 24
-// ("before you put the green one on the little cube") that says so, so
-// these wait on that.
+// pyramid during turn 17, not the later time in turn 21: the time turn 24
+// just found.
 turn "When did you pick it up?", "While I was stacking up the red cube, a large red block and a large green cube.",
   {"ours": "While I was stacking up the red cube, the large red block and a large green cube.",
-   "why": "there's only one large red block, so we say ""the""",
-   "gap": "which time is meant comes from turn 24"}
+   "why": "there's only one large red block, so we say ""the"""}
 
-turn "Why?", "To get rid of it.",
-  {"gap": "which time is meant comes from turn 24"}
+turn "Why?", "To get rid of it."
 
-turn "Why did you do that?", "To clean off the red cube.",
-  {"gap": "which time is meant comes from turn 24"}
+turn "Why did you do that?", "To clean off the red cube."
 
 turn "Why did you clear off that cube?", "To put it on a large green cube."
 
@@ -183,11 +177,9 @@ turn "How did you do it?",
   "By putting a large red block on the table; then letting go of it; then putting a large green cube on it; then letting go of that cube; then putting the red cube on that cube; then letting go of that cube.",
   {"gap": "our ""how"" answers are shorter"}
 
-turn "How many objects did you touch while you were doing it?", "Four of them.",
-  {"gap": """touch"", and ""while"" clauses"}
+turn "How many objects did you touch while you were doing it?", "Four of them."
 
-turn "What did the red cube support before you started to clean it off?", "The green pyramid.",
-  {"gap": "questions about the past"}
+turn "What did the red cube support before you started to clean it off?", "The green pyramid."
 
 turn "There were five blocks to the left of the box then.", "No, only four of them: the red cube, two large green cubes and a large red block.",
   {"gap": "statements about the past"}

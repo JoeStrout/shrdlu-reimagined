@@ -23,7 +23,7 @@
 //                {posture}: "sit", "rest" ("sitting on the table" means "on");
 //                {held}: "hold", "grasp" (what you're holding is [held]);
 //                {frames}: a command ("pick up", "put"); see below
-//   particle     "up", "down", "off": the second word of "pick up", "put down"...
+//   particle     "up", "down", "off", "out": the second word of "pick up", "put down"...
 //   attribute    {attr}: "color", "size", "shape", for "what color is it?"
 //   whAdverb     {q}: "why", "how", "when"
 //   modal        "will", "can", "would", "could" (as in "will you please...")
@@ -32,7 +32,7 @@
 // A command verb has a list of frames: the shapes it can take, and the ICL
 // command each shape means.  In a shape, "thing" is a noun phrase; "on" or
 // "in" is any preposition meaning that ("onto", "on top of", "into"...);
-// and "up", "down", "off" are particles, which may also come after the
+// and "up", "down", "off", "out" are particles, which may also come after the
 // noun phrase ("pick up the block", "pick the block up", "pick it up").
 //
 // Phrases of several words ("on top of", "how many") are entered with
@@ -224,17 +224,21 @@ command "grab", [frame("thing", "pickUp")]
 command "put", putFrames
 command "set", putFrames
 command "place", putFrames[:2]
-command "move", putFrames[:2]
+// "Move" alone is for questions: "Why did you move the red pyramid?"
+command "move", putFrames[:2] + [frame("thing", "move")]
 command "drop", [frame("thing", "putDown")]
-command "clear", [frame("off thing", "clearOff")]
-command "clean", [frame("off thing", "clearOff")]
+command "clear", [frame("off thing", "clearOff"), frame("out thing", "clearOff")]
+command "clean", [frame("off thing", "clearOff"), frame("out thing", "clearOff")]
+command "empty", [frame("thing", "clearOff"), frame("out thing", "clearOff")]     // (the box)
 command "get rid of", [frame("thing", "getRidOf")]
 command "stack", [frame("up thing", "stack"), frame("thing", "stack")]
 command "find", [frame("thing", "find")]
 command "call", [frame("thing name", "name")]
+// "Touch" is only for questions so far: "Had you touched any pyramid...?"
+command "touch", [frame("thing", "touch")]
 command "name", [frame("thing name", "name")]
 
-for w in ["up", "down", "off"]
+for w in ["up", "down", "off", "out"]
 	simple w, "particle"
 end for
 
@@ -262,6 +266,16 @@ end for
 simple "not", "not"
 for w in ["do", "does", "did"]
 	simple w, "do"
+end for
+for w in ["have", "has", "had"]
+	simple w, "have"
+end for
+simple "doing", "doing"     // "while you were doing it"
+verb "start", {"start": true}
+verb "begin", {"start": true}
+// Time clauses: "before you put the green one on the little cube".
+for w in ["before", "after", "while"]
+	add w, {"cat": "timeWord", "time": w}
 end for
 simple "than", "than"
 simple "you", "you"

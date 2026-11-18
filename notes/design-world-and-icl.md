@@ -354,6 +354,8 @@ The **focus history** (recent descriptions, sets, and objects) is part of the br
 
 **Commands:** `Verb arg, arg…`, where the verb is capitalized: `PickUp x1`, `PutOn x1, x2`, `ClearOff x1`, `Stack x1, x2`, `Find x1`. In the data, verbs are lower camel case (`putOn`).
 
+**Events in descriptions, and the past.** `[did e1]` on a description means "a thing the robot did e1 to", where e1's argument is that description itself: "How many objects did you touch while you were doing it?" is `x1 = how-many objects [did e1]`, `e1 = event Touch x1 [while e2]`, `e2 = event Do`. A time around a constraint, `[before e1 [on x2]]`, means the constraint held just before e1 began (`[after e1 …]`: just after it ended). The brain puts the world back as it was then (`World.snapshotAt`, `World.restore`), tests, and restores the present. Descriptions inside keep their present meaning.
+
 **Declarations** look like commands but teach rather than act: `Define steeple, x1`, `Name x1, superblock`, `Own x1`, `DontOwn x1`. Ownership isn't stored on the things. The brain keeps a list of what it was told. For one thing ("the blue pyramid"), that's the thing; for a kind ("any blocks [not [color red]]"), it's the description, checked against the world whenever ownership matters. The newest entry that fits a thing decides, and if none does, the robot doesn't know (`[owned]` is false, and "Do I own the table?" gets "I don't know.").
 
 **Questions:** `Ask kind target [claim]`

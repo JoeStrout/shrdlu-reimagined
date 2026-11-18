@@ -396,6 +396,31 @@ World.snapshot = function
 	return snap
 end function
 
+// Where everything was at a time ([turn, step], as goals record them):
+// the snapshot taken just before the first event after that time, or now,
+// if nothing has happened since.
+World.snapshotAt = function(time)
+	for e in self.history
+		if e.time[0] > time[0] or (e.time[0] == time[0] and e.time[1] > time[1]) then return e.before
+	end for
+	return self.snapshot
+end function
+
+// Put everything where a snapshot says it was.  This is for looking at
+// the past: take a snapshot of the present first, and restore that after.
+World.restore = function(snap)
+	for t in self.things
+		if not snap.hasIndex(t.id) then continue
+		t.pos = snap[t.id].pos[:]
+		t.supporters = []
+		for id in snap[t.id].supporters
+			t.supporters.push self.thing(id)
+		end for
+	end for
+	self.hand.holding = null
+	if snap.hasIndex("(hand)") then self.hand.holding = self.thing(snap["(hand)"])
+end function
+
 World.record = function(action, info)
 	self.step += 1
 	event = {"time": [self.turn, self.step], "action": action,
