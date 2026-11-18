@@ -43,10 +43,11 @@ The tests run without a window, using command-line MiniScript 2:
 MS_IMPORT_PATH=src miniscript tests/testWorld.ms
 MS_IMPORT_PATH=src:tests miniscript tests/testDisplay.ms
 MS_IMPORT_PATH=src miniscript tests/testIcl.ms
-MS_IMPORT_PATH=src miniscript tests/testBrain.ms
-MS_IMPORT_PATH=src miniscript tests/testPlanner.ms
+MS_IMPORT_PATH=src:tests miniscript tests/testBrain.ms
+MS_IMPORT_PATH=src:tests miniscript tests/testPlanner.ms
 MS_IMPORT_PATH=src:tests miniscript tests/testConsole.ms
 MS_IMPORT_PATH=src miniscript tests/testParser.ms
+MS_IMPORT_PATH=src miniscript tests/testDialogue.ms
 ```
 
 ## History

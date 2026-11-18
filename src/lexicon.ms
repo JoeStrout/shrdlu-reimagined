@@ -109,6 +109,10 @@ determiner "every", "every", "sg"
 determiner "each", "every", "sg"
 determiner "all", "every", "pl"
 determiner "no", "no"
+// "That cube" and "this cube" are "the cube", which prefers the one just
+// mentioned or clicked on (see Brain.inFocus).
+determiner "that", "the", "sg"
+determiner "this", "the", "sg"
 determiner "which", "which"
 determiner "what", "which"
 determiner "how many", "how-many", "pl"
@@ -199,6 +203,11 @@ verb "stand", {"posture": true}
 verb "hold", {"held": true}
 verb "grasp", {"held": true}
 
+// Owning: "I own blocks which are not red", "the blue pyramid is mine".
+// (Only the user owns things, so far.)
+verb "own", {"own": true}
+add "mine", {"cat": "mine"}
+
 // Command verbs, with their frames.
 frame = function(shape, icl)
 	return {"shape": shape.split(" "), "icl": icl}
@@ -222,6 +231,8 @@ command "clean", [frame("off thing", "clearOff")]
 command "get rid of", [frame("thing", "getRidOf")]
 command "stack", [frame("up thing", "stack"), frame("thing", "stack")]
 command "find", [frame("thing", "find")]
+command "call", [frame("thing name", "name")]
+command "name", [frame("thing name", "name")]
 
 for w in ["up", "down", "off"]
 	simple w, "particle"
@@ -236,6 +247,10 @@ for w in ["why", "how", "when"]
 end for
 pronoun "what", "thing", "which"
 simple "there", "there"
+
+// Social niceties.
+add "thank you", {"cat": "thanks"}
+add "thanks", {"cat": "thanks"}
 
 // Little words.
 for w in ["which", "that", "who"]
@@ -253,6 +268,7 @@ simple "you", "you"
 simple "i", "i"
 simple "to", "to"
 simple "and", "and"
+simple "but", "but"
 simple "then", "then"
 simple "please", "polite"
 for w in ["will", "would", "can", "could"]

@@ -5,13 +5,14 @@
 // Winograd's dialogue, written in ICL, played against the Winograd scene.
 // Run from the repo root:
 //
-//   MS_IMPORT_PATH=src miniscript tests/testPlanner.ms
+//   MS_IMPORT_PATH=src:tests miniscript tests/testPlanner.ms
 //
 // For brevity, the ICL here separates lines with "; ".
 
 import "geometry"
 import "world"
 import "scenes"
+import "fixtures"
 import "relations"
 import "planner"
 import "brain"
@@ -56,7 +57,7 @@ on = function(a, b)
 end function
 
 w = world.World.make
-w.load scenes.byName.winograd
+w.load fixtures.earlyScene
 b = brain.Brain.make(w)
 
 //----------------------------------------------------------------------
@@ -86,7 +87,7 @@ expect b, "x1 = how-many blocks [not [in x2]]; x2 = the box; Ask count x1", "Fou
 
 // "Is at least one of them narrower than the one which I told you to pick up?"
 expect b, "x1 = at-least-1 of them; x2 = the one [commanded PickUp]; Ask yes-no x1 [narrower x2]",
-  "Yes, the red cube, the large green cube and the small green cube."
+  "Yes, three of them: the red cube, the large green cube and the small green cube."
 
 // "Will you please stack up both of the large red blocks and either a green cube
 // or a pyramid?"
@@ -95,7 +96,7 @@ check on("b1", "b3") and on("b4", "b1"), "stacked: the big red block, the red cu
 check on("p1", "table"), "the green pyramid had to come off the red cube"
 
 // "Which cube is sitting on the table?"
-expect b, "x1 = which cube [on x2]; x2 = the table; Ask which x1", "The large green cube."
+expect b, "x1 = which cube [on x2]; x2 = the table; Ask which x1", "The large green one."
 
 // "Why did you pick up the green pyramid?" and then "Why?" up the chain.
 expect b, "x1 = the pyramid [color green]; e1 = event PickUp x1; Ask why e1", "To get rid of it."

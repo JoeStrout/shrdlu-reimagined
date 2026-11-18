@@ -75,6 +75,7 @@ end function
 // null if it adds none (like the noun itself).
 Meaning.constraintFor = function(tree)
 	if tree.cat == "adj" then return self.adjectiveConstraint(tree)
+	if tree.cat == "mine" then return icl.constraint("owned")     // "is mine"
 	if tree.cat == "PP" or tree.cat == "CMP" then
 		// "on the table" -> [on x2];  "taller than it" -> [taller x2]
 		relation = tree.parts[0].entry.pred
@@ -107,11 +108,13 @@ end function
 
 // A relative clause means whatever its last part means ("which is red",
 // "which supports a pyramid"), possibly with "not".  "You are holding"
-// means [held].
+// means [held], and "I own" means [owned].
 Meaning.clauseConstraint = function(tree)
 	last = tree.parts[-1]
 	if last.cat == "verb" and last.entry.hasIndex("held") then
 		c = icl.constraint("held")
+	else if last.cat == "verb" and last.entry.hasIndex("own") then
+		c = icl.constraint("owned")     // "which I own"
 	else if tree.cat == "WH" and (last.cat == "verb" or last.cat == "prep") then
 		c = self.turnedAround(tree)
 	else
@@ -169,7 +172,21 @@ Meaning.sentence = function(s)
 	else if s.kind == "event" then
 		q = s.parts[0].entry.q
 		self.prog.add icl.ask(q, self.event(s))
+	else if s.kind == "statement" then
+		for part in parser.partsOfCat(s, "OWN")
+			self.prog.add self.ownership(part)
+		end for
+	else if s.kind == "thanks" then
+		self.prog.add icl.command("thank")
 	end if
+end function
+
+// "I own blocks which are not red" -> Own x1, with x1 = any block [not
+// [color red]].  "I don't own..." -> DontOwn x1.
+Meaning.ownership = function(own)
+	verb = "own"
+	if parser.partsOfCat(own, "not") then verb = "dontOwn"
+	return icl.command(verb, [self.describe(parser.partsOfCat(own, "NP")[0])])
 end function
 
 // The ICL command for a CMD node: its frame's verb, with a variable for
@@ -178,10 +195,13 @@ Meaning.command = function(cmd)
 	return icl.command(cmd.frame.icl, self.arguments(cmd))
 end function
 
+// A command's arguments: a variable for each noun phrase, and a name as
+// itself ("call it 'superblock'" -> Name x1, superblock).
 Meaning.arguments = function(cmd)
 	args = []
-	for np in parser.partsOfCat(cmd, "NP")
-		args.push self.describe(np)
+	for part in cmd.parts
+		if part.cat == "NP" then args.push self.describe(part)
+		if part.cat == "name" then args.push part.word
 	end for
 	return args
 end function

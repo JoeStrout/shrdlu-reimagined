@@ -50,7 +50,6 @@ All physical things share one prototype, `Thing`. Kinds are distinguished by `sh
 | `pos` | `[x, y, z]` | center of bottom face |
 | `supporters` | list of Thing | what it rests on: usually one thing, two or more for a bridge or arch; empty only for the table, and while held |
 | `names` | list | names the user has given it ("call it superblock") |
-| `owner` | string or null | for "I own blocks which are not red" |
 
 **Derived properties (computed, never stored):**
 
@@ -201,7 +200,7 @@ We'll recreate Winograd's starting arrangement as closely as the published dialo
 - The large green cube supports the red pyramid.
 - Exactly four blocks are not in the box (after the first few moves).
 
-**Task:** reconstruct exact sizes and positions from the dialogue and Winograd's figure, then verify by running the dialogue. Until then, `scenes/winograd.ms` will hold a best-guess layout clearly marked as provisional.
+**Done (2026-11-18):** the scene in `src/scenes.ms` now follows Winograd's own data (thesis Appendix F), with his ids. He never published sizes, so those are inferred from the support heights and the dialogue; see `references/winograd-scene-and-dialog.md`.
 
 Scenes are plain data files: a list of `{id, shape, color, size, pos}`. Supporters are worked out by dropping each object into place, so a scene file can't describe an impossible arrangement. That makes it easy to add other scenes for tests and demos.
 
@@ -260,7 +259,7 @@ One uniform shape (rather than separate kinds for relations, comparisons, and lo
 | attribute | "What color is it?" | `{kind:"ask", q:"attribute", attr:"color", target:"x1"}` |
 | history | "Why did you…?", "When…?", "How…?" | `{kind:"ask", q:"why", target:"e1"}` |
 | ability | "Can the table pick up blocks?" | not yet designed |
-| declaration | "Call it superblock.", "I own…", "A steeple is…" | `{kind:"declare", verb:"name", args:["x1", "superblock"]}`, and likewise `own` and `define` |
+| declaration | "Call it superblock.", "I own…", "A steeple is…" | `{kind:"declare", verb:"name", args:["x1", "superblock"]}`, and likewise `own`, `dontOwn` and `define` |
 
 A yes/no question is a target plus a constraint, the same pattern a description uses, so "Does x1 support x2?" is `{target:"x1", claim:{pred:"supports", args:["x2"]}}`. An **event** (`{kind:"event", var, verb, args, props}`) is a pattern: a verb with argument descriptions, plus optional time constraints (`[before e2]`, `[after e2]`, `[while e2]`), matched against the event history.
 
@@ -355,7 +354,7 @@ The **focus history** (recent descriptions, sets, and objects) is part of the br
 
 **Commands:** `Verb arg, arg…`, where the verb is capitalized: `PickUp x1`, `PutOn x1, x2`, `ClearOff x1`, `Stack x1, x2`, `Find x1`. In the data, verbs are lower camel case (`putOn`).
 
-**Declarations** look like commands but teach rather than act: `Define steeple, x1`, `Name x1, superblock`, `Own x1`.
+**Declarations** look like commands but teach rather than act: `Define steeple, x1`, `Name x1, superblock`, `Own x1`, `DontOwn x1`. Ownership isn't stored on the things. The brain keeps a list of what it was told. For one thing ("the blue pyramid"), that's the thing; for a kind ("any blocks [not [color red]]"), it's the description, checked against the world whenever ownership matters. The newest entry that fits a thing decides, and if none does, the robot doesn't know (`[owned]` is false, and "Do I own the table?" gets "I don't know.").
 
 **Questions:** `Ask kind target [claim]`
 

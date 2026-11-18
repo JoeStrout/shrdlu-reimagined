@@ -94,7 +94,7 @@ check cats("touches") == ["verb/s"], "touches is a verb with -es"
 check cats("holding") == ["verb/ing"], "holding is a verb with -ing"
 check cats("sitting") == ["verb/ing"], "sitting doubles its t"
 check cats("held") == ["verb/ed"], "held is irregular"
-check cats("that") == ["pronoun/base", "relpro/base"], "that is a pronoun and a relative pronoun"
+check cats("that") == ["det/base", "pronoun/base", "relpro/base"], "that is a determiner, a pronoun, and a relative pronoun"
 check cats("frobnicate") == [], "unknown words have no entries"
 
 //----------------------------------------------------------------------
@@ -163,12 +163,10 @@ check nounPhraseReadings("the green cube which supports a pyramid").len == 1, ".
 //    to choose by context.
 //expectNP "blocks which are not red", "x1 = every block [not [color red]]"    // (in "I own ...")
 //
-// 2. "That" (and "this") as a determiner.  "That block" should mean the
-//    block that was clicked on, or the one just mentioned, but ICL has only
-//    the pronouns "this" and "that", with no noun.  It might become a
-//    determiner, as in:
-//expectNP "that block", "x1 = that block"
-//expectNP "this red pyramid", "x1 = this pyramid [color red]"
+// ("That" and "this" as determiners now work: "that block" is "the block",
+// which prefers the one just mentioned or clicked on.)
+expectNP "that block", "x1 = the block"
+expectNP "this red pyramid", "x1 = the pyramid [color red]"
 
 // Trees
 r = parser.parseNounPhrase("the littlest pyramid")
@@ -249,6 +247,18 @@ expect "Why did you clear off the red cube?", "x1 = the cube [color red]; e1 = e
 expect "Why?", "e1 = event Do; Ask why e1"
 expect "Why did you do that?", "e1 = event Do; Ask why e1"
 expect "How did you do it?", "e1 = event Do; Ask how e1"
+expect "Why did you clear off that cube?", "x1 = the cube; e1 = event ClearOff x1; Ask why e1"
+expect "Call the biggest block ""superblock"".", "x1 = the block [biggest]; Name x1, superblock"
+expect "Thank you.", "Thank"
+
+// Ownership.
+expect "The blue pyramid is mine.", "x1 = the pyramid [color blue]; Own x1"
+expect "I own blocks which are not red, but I don't own anything which supports a pyramid.",
+  "x1 = any blocks [not [color red]]; Own x1; x2 = any thing [supports x3]; x3 = a pyramid; DontOwn x2"
+expect "Do I own the box?", "x1 = the box; Ask yes-no x1 [owned]"
+expect "Is the red cube mine?", "x1 = the cube [color red]; Ask yes-no x1 [owned]"
+expect "Which blocks do I own?", "x1 = which blocks [owned]; Ask which x1"
+expect "How many blocks which I own are in the box?", "x1 = how-many blocks [owned] [in x2]; x2 = the box; Ask count x1"
 
 // The classic ambiguity, in a command.
 readings = readingsOf("Put the blue pyramid on the block in the box.")
@@ -268,11 +278,11 @@ check parser.formatTree(r.trees[0]) == "(S command (CMD (V pick) up (NP a (ADJ b
 // Complaints
 //----------------------------------------------------------------------
 
-expectNPError "a frobnicated block", "I don't know the word ""frobnicated""."
+expectNPError "a frobnicated block", "Sorry, I don't know the word ""frobnicated""."
 expectNPError "a blocks", "I didn't understand the part starting with ""blocks""."
 expectNPError "the red", "That seems to stop in the middle."
 expectNPError "a block on", "That seems to stop in the middle."
-check parser.parse("Pick up a frobnicated block.").error == "I don't know the word ""frobnicated"".", "unknown word in a sentence"
+check parser.parse("Pick up a frobnicated block.").error == "Sorry, I don't know the word ""frobnicated"".", "unknown word in a sentence"
 check parser.parse("Pick up the block the box.").error == "I didn't understand the part starting with ""the"".",
   "where a sentence goes wrong: " + parser.parse("Pick up the block the box.").error
 

@@ -50,6 +50,9 @@ Brain.planner = null
 // The object the user last clicked on, for "this" and "that".
 Brain.selected = null
 
+// What the user has told us they own (see Brain.owns).
+Brain.ownership = null
+
 // Per-sentence working state.
 Brain.prog = null       // the ICL program being handled
 Brain.cache = null      // var -> candidates, so each is only worked out once
@@ -63,6 +66,7 @@ Brain.make = function(theWorld)
 	b.world = theWorld
 	b.focus = {"it": null, "them": null, "noun": null, "event": null}
 	b.planner = planner.Planner.make(theWorld)
+	b.ownership = []
 	return b
 end function
 
@@ -104,9 +108,12 @@ Brain.respond = function(prog)
 end function
 
 Brain.handle = function(statement)
+	if statement.hasIndex("verb") and statement.verb == "thank" then return "You're welcome!"
 	if statement.kind == "ask" then return self.answer(statement)
 	if statement.kind == "command" then return self.command(statement)
 	if statement.kind == "declare" and statement.verb == "name" then return self.giveName(statement)
+	if statement.kind == "declare" and statement.verb == "own" then return self.learnOwnership(statement, true)
+	if statement.kind == "declare" and statement.verb == "dontOwn" then return self.learnOwnership(statement, false)
 	return "Sorry, I can't do that yet."
 end function
 
@@ -163,7 +170,7 @@ Brain.thingsForHead = function(d)
 	// Not a noun we know: maybe it's a name the user gave something.
 	t = self.world.thing(head)
 	if t then return [t]
-	return self.fail("I don't know the word """ + head + """.")
+	return self.fail("Sorry, I don't know the word """ + head + """.")
 end function
 
 // "One" borrows its noun from something said earlier: "a red one" after
@@ -189,7 +196,8 @@ end function
 // only one that the green pyramid is on, and that's the one meant.  So
 // such an inner "the" may have several candidates while we test (see
 // referInside), and afterward the survivors must all be related to the
-// same one of them.
+// same one of them (or, failing that, to the one we were just talking
+// about).
 Brain.filter = function(things, props)
 	savedUsed = self.used
 	passed = []     // the things that meet every constraint...
@@ -215,13 +223,15 @@ Brain.filter = function(things, props)
 	for c in props
 		if relations.superlatives.hasIndex(c.pred) then result = relations.extreme(result, c.pred)
 	end for
-	if not self.innerDefinitesOk(passed, usedBy, result) then return null
-	return result
+	return self.settleInnerDefinites(passed, usedBy, result)
 end function
 
-// After filtering: does each inner "the" pick out just one thing, among
-// those the survivors are related to?  If not, complain as usual.
-Brain.innerDefinitesOk = function(passed, usedBy, survivors)
+// After filtering, settle each inner "the": the survivors must all be
+// related to just one of its candidates.  If they're related to several,
+// the one just talked about (see inFocus) will do, and the survivors that
+// aren't related to it drop out.  Returns the survivors, or null (with a
+// complaint) if an inner "the" is still ambiguous.
+Brain.settleInnerDefinites = function(passed, usedBy, survivors)
 	related = {}     // var -> the things the survivors are related to
 	for i in passed.indexes
 		if not containsRef(survivors, passed[i]) then continue
@@ -233,13 +243,21 @@ Brain.innerDefinitesOk = function(passed, usedBy, survivors)
 		end for
 	end for
 	for var in related.indexes
-		if related[var].len > 1 then
+		if related[var].len <= 1 then continue
+		meant = self.inFocus(related[var])
+		if meant.len != 1 then
 			d = self.lookup(var)
-			self.fail "I don't understand which " + speech.descriptionPhrase(d, false) + " you mean."
-			return false
+			return self.fail("I don't understand which " + speech.descriptionPhrase(d, false) + " you mean.")
 		end if
+		// Keep only the survivors related to the one meant.
+		kept = []
+		for i in passed.indexes
+			if not containsRef(survivors, passed[i]) then continue
+			if usedBy[i].hasIndex(var) and containsRef(usedBy[i][var], meant[0]) then kept.push passed[i]
+		end for
+		survivors = kept
 	end for
-	return true
+	return survivors
 end function
 
 // Note that the thing being tested is related to this candidate for an
@@ -274,6 +292,7 @@ Brain.test = function(thing, c)
 		return false
 	end if
 	if pred == "commanded" then return self.wasCommanded(thing, c.args)
+	if pred == "owned" then return self.owns(thing) == true
 	if relations.unary.hasIndex(pred) then return relations.unary[pred](self.world, thing)
 	if relations.valued.hasIndex(pred) then return relations.valued[pred](self.world, thing, c.args[0])
 	if relations.binary.hasIndex(pred) then
@@ -342,7 +361,28 @@ Brain.definite = function(var)
 		return self.fail("I don't see any " + speech.descriptionPhrase(d, true) + ".")
 	end if
 	if things.len > 1 and not d.plural then
-		return self.fail("I don't understand which " + speech.descriptionPhrase(d, false) + " you mean.")
+		// "The pyramid", when there are several, can still mean the one
+		// that's clicked on, or the one we were just talking about.
+		things = self.inFocus(things)
+		if things.len != 1 then
+			return self.fail("I don't understand which " + speech.descriptionPhrase(d, false) + " you mean.")
+		end if
+	end if
+	return things
+end function
+
+// Of these things, the ones the user is pointing at or we were just
+// talking about: first the clicked one, then "it", then "them".  If none
+// of those narrows it down, all of them.
+Brain.inFocus = function(things)
+	if self.selected and containsRef(things, self.selected) then return [self.selected]
+	if self.focus.it and containsRef(things, self.focus.it) then return [self.focus.it]
+	if self.focus.them then
+		recent = []
+		for t in things
+			if containsRef(self.focus.them, t) then recent.push t
+		end for
+		if recent then return recent
 	end if
 	return things
 end function
@@ -375,8 +415,19 @@ Brain.answerExists = function(var)
 	if things == null then return null
 	if not things then return "No."
 	self.noteFocus var, things
-	if things.len == 1 then return "Yes, " + speech.nameFor(self.world, things[0]) + "."
-	return "Yes, " + speech.numberWord(things.len) + " of them: " + speech.namesFor(self.world, things) + "."
+	return "Yes, " + self.countedNames(var, things) + "."
+end function
+
+// The things found for a question's noun phrase, counted if there's more
+// than one: "the red cube", "three of them: a large red one, ...", or, for
+// "anything" or "something", "two things: the blue block and the blue
+// pyramid".
+Brain.countedNames = function(var, things)
+	d = self.lookup(var)
+	names = speech.namesFor(self.world, things, d.head)
+	if things.len == 1 then return names
+	if d.head == "thing" then return speech.numberWord(things.len) + " things: " + names
+	return speech.numberWord(things.len) + " of them: " + names
 end function
 
 // "How many blocks are not in the box?"
@@ -389,12 +440,20 @@ Brain.answerCount = function(var)
 end function
 
 // "Which cube is on the table?"  "What does the box contain?"
+// "Which cube" asks us to pick out each one, so we say enough to tell it
+// from the other cubes; "what" just asks what's there.
 Brain.answerWhich = function(var)
 	things = self.candidates(var)
 	if things == null then return null
 	if not things then return "None."
 	self.noteFocus var, things
-	return speech.capitalize(speech.namesFor(self.world, things)) + "."
+	noun = self.lookup(var).head
+	if noun == "thing" then
+		names = speech.namesFor(self.world, things)
+	else
+		names = speech.specificNamesFor(self.world, things, noun)
+	end if
+	return speech.capitalize(names) + "."
 end function
 
 // "What color is it?"
@@ -444,12 +503,22 @@ Brain.answerYesNo = function(var, claim)
 		if self.test(t, claim) then meeting.push t
 		if self.problem then return null
 	end for
-	if not self.quantityOk(ref, meeting.len) then return "No."
+	if not self.quantityOk(ref, meeting.len) then
+		// "Do I own the table?"  We weren't told either way.
+		if claim.pred == "owned" and ref.things.len == 1 and self.owns(ref.things[0]) == null then
+			return "I don't know."
+		end if
+		return "No."
+	end if
 	self.noteFocus var, ref.things
+	// "Is it supported?"  "Yes, by the table."
+	if claim.pred == "supported" and ref.things.len == 1 then
+		return "Yes, by " + speech.namesFor(self.world, ref.things[0].supporters) + "."
+	end if
 	// For "is there one which...", say which ones did.
 	if ref.quantity == "some" or ref.quantity == "at-least" then
 		self.noteFocus var, meeting
-		return "Yes, " + speech.namesFor(self.world, meeting) + "."
+		return "Yes, " + self.countedNames(var, meeting) + "."
 	end if
 	return "Yes."
 end function
@@ -792,7 +861,7 @@ Brain.assumption = function(r, chosen, other)
 	if phrase == null then return null
 	things = self.check(r.programs[chosen], phrase.var).referents[phrase.var]
 	if not things then return null
-	return "By """ + phrase.words + """, I assume you mean " + speech.namesFor(self.world, things) + "."
+	return "By """ + phrase.words + """, I assume you mean " + speech.specificNamesFor(self.world, things) + "."
 end function
 
 // Would this program make sense right now?  Works out what each statement
@@ -892,4 +961,74 @@ Brain.giveName = function(statement)
 	things[0].names.push statement.args[1]
 	self.noteFocus statement.args[0], things
 	return "OK."
+end function
+
+//----------------------------------------------------------------------
+// Ownership
+//
+// The user can tell us what they own, either particular things ("The
+// blue pyramid is mine") or kinds of thing ("I own blocks which are not
+// red").  A kind is kept as its description, and checked whenever it
+// matters, so it covers things that come to fit it later.  What we were
+// told last counts most, so in "I own blocks which are not red, but I
+// don't own anything which supports a pyramid", a blue block that
+// supports a pyramid isn't owned.
+//----------------------------------------------------------------------
+
+// "Own x1" or "DontOwn x1".  Each thing we're told about, or kind of thing,
+// goes in self.ownership as {things, owned} or {prog, var, owned}.
+Brain.learnOwnership = function(statement, owned)
+	var = statement.args[0]
+	d = self.lookup(var)
+	if d == null then return null
+	if d.det == null or d.det == "the" then
+		things = self.definite(var)
+		if things == null then return null
+		self.noteFocus var, things
+		self.ownership.push {"things": things, "owned": owned}
+	else
+		self.ownership.push {"prog": self.prog, "var": var, "owned": owned}
+	end if
+	return "I understand."
+end function
+
+// Does the user own this thing?  true, false, or null if we haven't been
+// told either way.
+Brain.owns = function(thing)
+	for i in range(self.ownership.len - 1, 0, -1)
+		entry = self.ownership[i]
+		if entry.hasIndex("things") then
+			if containsRef(entry.things, thing) then return entry.owned
+		else if self.fitsDescription(thing, entry) then
+			return entry.owned
+		end if
+	end for
+	return null
+end function
+
+// Does a thing fit a description the user gave in an earlier sentence?
+// `entry` has the program and variable.  The description is checked
+// against the world as it is now, and anything that goes wrong (say, "the
+// pyramid" in it no longer makes sense) just means it doesn't fit.
+Brain.fitsDescription = function(thing, entry)
+	if entry.hasIndex("checking") then return false     // a description that mentions itself
+	entry.checking = true
+	saved = {"prog": self.prog, "cache": self.cache, "busy": self.busy,
+	  "problem": self.problem, "used": self.used}
+	self.prog = entry.prog
+	self.cache = {}
+	self.busy = {}
+	self.problem = null
+	fits = false
+	d = self.lookup(entry.var)
+	things = self.thingsForHead(d)
+	if things and containsRef(things, thing) then
+		passed = self.filter([thing], d.props)
+		fits = passed != null and passed.len == 1
+	end if
+	for key in saved.indexes
+		self[key] = saved[key]
+	end for
+	entry.remove "checking"
+	return fits
 end function

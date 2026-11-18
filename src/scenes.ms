@@ -13,23 +13,32 @@
 
 // Winograd's starting scene.
 //
-// PROVISIONAL: a best guess, not yet checked against Winograd's figure.  The
-// dialogue requires, for example, that a green cube sits on the large red
-// block, that there are three pyramids, that the box holds the blue pyramid (off to one side, leaving room
-// for the blue block),
-// that the large green cube supports the red pyramid, and that a blue block
-// is taller than the large red block.  We'll tune this until the whole
-// dialogue runs correctly.
+// From the PLANNER data in his thesis (Appendix F) and the book's Fig. 3;
+// see references/winograd-scene-and-dialog.md.  The ids are Winograd's own
+// (B1 to B10, with no B8 or B9), so this is easy to check against the
+// sources.  His table is 1200 units each way, with y running from front to
+// back; ours is 12 by 8, with z running from back to front.  Sizes here
+// are his divided by 100.  The positions keep his layout (what's left of,
+// behind, and on what), but are moved a little to fit our smaller table,
+// and the box is less deep than he seems to have drawn it.
+//
+// Winograd never published the sizes, so these are inferred from where
+// things sit and from what the dialogue says about them:
+//   - b10 is taller than b6 (turn 3)
+//   - of the blocks outside the box, only b1 is narrower than b6 (turn 7)
+//   - b10 is bigger than every pyramid, but not as wide as the box (turn 35)
+//   - the box holds b4 and b10 side by side (turn 3)
+//   - b7 overhangs b6 a little toward the front, as in Fig. 3
 winograd = [
-	{"id": "b1", "kind": "block",   "color": "red",   "size": [1, 1, 1],     "at": [-4, 1.5]},
-	{"id": "p1", "kind": "pyramid", "color": "green", "size": [1, 1, 1],     "at": [-4, 1.5]},
-	{"id": "b2", "kind": "block",   "color": "green", "size": [2, 2, 2],     "at": [-1.5, -1.5]},
-	{"id": "p2", "kind": "pyramid", "color": "red",   "size": [1, 1.5, 1],   "at": [-1.5, -1.5]},
-	{"id": "b3", "kind": "block",   "color": "red",   "size": [3, 2, 2],     "at": [1.5, 1.5]},
-	{"id": "b4", "kind": "block",   "color": "green", "size": [1, 1, 1],     "at": [1.5, 1.5]},
-	{"id": "b5", "kind": "block",   "color": "blue",  "size": [1, 3, 1],     "at": [-3.5, -2]},
-	{"id": "box", "kind": "box",    "color": "white", "size": [3, 1.5, 3],   "at": [4, -2]},
-	{"id": "p3", "kind": "pyramid", "color": "blue",  "size": [1, 1.5, 1],   "at": [3.25, -2]}]
+	{"id": "b1",  "kind": "block",   "color": "red",   "size": [1, 1, 1],     "at": [-3.5, 2.5]},  // the red cube
+	{"id": "b2",  "kind": "pyramid", "color": "green", "size": [1, 1, 1],     "at": [-3.5, 2.5]},  // on the red cube
+	{"id": "b3",  "kind": "block",   "color": "green", "size": [2, 2, 2],     "at": [0, 3]},       // a large green cube
+	{"id": "b5",  "kind": "pyramid", "color": "red",   "size": [1, 3, 1],     "at": [0.5, 2.5]},   // the tall red pyramid, on b3
+	{"id": "b6",  "kind": "block",   "color": "red",   "size": [2, 3, 2],     "at": [-4, 0]},      // the large red block
+	{"id": "b7",  "kind": "block",   "color": "green", "size": [2, 2, 2],     "at": [-4, 0.5]},    // the other large green cube, on b6
+	{"id": "b10", "kind": "block",   "color": "blue",  "size": [2, 4, 2],     "at": [-1, -2.5]},   // the tall blue block
+	{"id": "box", "kind": "box",     "color": "white", "size": [4.5, 1.5, 3], "at": [3, -2.5]},
+	{"id": "b4",  "kind": "pyramid", "color": "blue",  "size": [2, 1.5, 2],   "at": [2, -2.5]}] // in the box, at the left
 
 // A playground for trying out building: posts and lintels for arches,
 // cylinders, and pyramids whose tips are level with block tops.

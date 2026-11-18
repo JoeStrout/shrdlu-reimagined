@@ -4,12 +4,13 @@
 // question answering, using hand-written ICL against the scenes.
 // Run from the repo root:
 //
-//   MS_IMPORT_PATH=src miniscript tests/testBrain.ms
+//   MS_IMPORT_PATH=src:tests miniscript tests/testBrain.ms
 //
 // For brevity, the ICL in these tests separates lines with "; ".
 
 import "world"
 import "scenes"
+import "fixtures"
 import "icl"
 import "relations"
 import "speech"
@@ -25,9 +26,11 @@ check = function(condition, what)
 	print "FAILED: " + what
 end function
 
-newWorld = function(sceneName="winograd")
+// A world with the early scene (see fixtures.ms), or one of the real ones.
+newWorld = function(sceneName=null)
 	w = world.World.make
-	problems = w.load(scenes.byName[sceneName])
+	if sceneName == null then scene = fixtures.earlyScene else scene = scenes.byName[sceneName]
+	problems = w.load(scene)
 	if problems then print "Scene problems: " + problems
 	return w
 end function
@@ -104,7 +107,12 @@ tw.load [
   {"id": "b2", "kind": "block", "color": "red", "size": [1,1,1], "at": [2, 0]},
   {"id": "b3", "kind": "block", "color": "blue", "size": [1,1,1], "at": [2, 0]}]
 check speech.nameFor(tw, tw.thing("b3")) == "the blue cube", "the blue cube"
-check speech.nameFor(tw, tw.thing("b2")) == "the red cube which is on the table", "located by its supporter"
+check speech.nameFor(tw, tw.thing("b2")) == "the red cube which supports the blue cube", "told apart by what it supports"
+check speech.nameFor(tw, tw.thing("b1")) == "the red cube which is to the left of the blue cube", "or by where it is"
+check speech.nameFor(tw, tw.thing("b2"), false) == "a red cube", "when it doesn't matter which"
+check speech.namesFor(tw, [tw.thing("b1"), tw.thing("b2")]) == "two red cubes", "alike things counted together"
+check speech.nameFor(w, b3, false) == "the large red block", "the size is added when color isn't enough"
+check speech.nameFor(w, b2, false) == "the large green cube", "and that may be enough"
 
 //----------------------------------------------------------------------
 // Reference resolution and questions, in Winograd's scene
@@ -125,10 +133,10 @@ expect b, "x1 = a pyramid; Ask shape x1", "Pyramid."
 expect b, "x1 = a pyramid [color purple]; Ask color x1", "I don't see any purple pyramids."
 
 // "Is there a big red block?"
-expect b, "x1 = a block [color red] [size big]; Ask exists x1", "Yes, the large red block."
+expect b, "x1 = a block [color red] [size big]; Ask exists x1", "Yes, the large red one."
 expect b, "x1 = a block [color yellow]; Ask exists x1", "No."
 expect b, "x1 = a pyramid [on x2]; x2 = a cube; Ask exists x1",
-  "Yes, two of them: the green pyramid and the red pyramid."
+  "Yes, two of them: the green one and the red one."
 
 // "What does the box contain?"
 expect b, "x1 = which thing [in x2]; x2 = the box; Ask which x1", "The blue pyramid."
@@ -144,14 +152,17 @@ expect b, "x1 = how-many blocks [not [in x2]]; x2 = the box; Ask count x1", "Fiv
 // "Is at least one of them narrower than the red cube?"  ("Them" is those five.)
 expect b, "x1 = at-least-1 of them; x2 = the cube [color red]; Ask yes-no x1 [narrower x2]", "No."
 expect b, "x1 = at-least-1 of them; x2 = the cube [color red]; Ask yes-no x1 [wider x2]",
-  "Yes, the large green cube and the large red block."
+  "Yes, two of them: the large green cube and the large red block."
 // "Is it taller than..." with "the" and "every".
 expect b, "x1 = the cube [color red]; x2 = the block [color blue]; Ask yes-no x1 [shorter x2]", "Yes."
 expect b, "x1 = every pyramid; x2 = the box; Ask yes-no x1 [in x2]", "No."
 expect b, "x1 = no pyramid; x2 = the table; Ask yes-no x1 [on x2]", "Yes."
 // Quantifiers inside constraints: on *a* cube, versus on *the* cube.
 expect b, "x1 = how-many pyramids [on x2]; x2 = a cube; Ask count x1", "Two of them."
-expect b, "x1 = how-many pyramids [on x2]; x2 = the cube; Ask count x1", "I don't understand which cube you mean."
+// "The cube" is ambiguous (both cubes have a pyramid on them)...
+expect brain.Brain.make(w), "x1 = how-many pyramids [on x2]; x2 = the cube; Ask count x1", "I don't understand which cube you mean."
+// ...unless we were just talking about one of them: "it" is the red cube now.
+expect b, "x1 = how-many pyramids [on x2]; x2 = the cube; Ask count x1", "One of them."
 expect b, "x1 = how-many things [on x2]; x2 = every block; Ask count x1", "None."
 // "Red or green"
 expect b, "x1 = how-many pyramids [color red|green]; Ask count x1", "Two of them."
@@ -164,14 +175,14 @@ expect b, "x1 = the cube [on x2]; x2 = superblock; Ask size x1", "Small."
 
 // "One" borrows a noun from earlier in the sentence.
 expect b, "x1 = a block [taller x2]; x2 = the one [color red] [size small]; Ask exists x1",
-  "Yes, three of them: the large green cube, the large red block and the blue block."
+  "Yes, three of them: the large green cube, the one named superblock and the blue one."
 
 // Things we can't do or don't know.
 fresh = brain.Brain.make(newWorld)
 expect fresh, "x1 = it; Ask color x1", "I don't know what you mean by ""it""."
 expect fresh, "x1 = them; Ask count x1", "I don't know what you mean by ""them""."
 expect fresh, "x1 = a block [sparkly]; Ask exists x1", "I don't know what ""sparkly"" means."
-expect fresh, "x1 = a widget; Ask exists x1", "I don't know the word ""widget""."
+expect fresh, "x1 = a widget; Ask exists x1", "Sorry, I don't know the word ""widget""."
 expect fresh, "x1 = a block [on x2]; x2 = a pyramid [under x1]; Ask exists x1", "I don't know what ""under"" means."
 expect fresh, "x1 = a block [on x2]; x2 = a block [supports x1]; Ask exists x1",
   "(I went in circles: x1 is described in terms of itself.)"
@@ -186,7 +197,7 @@ hb = brain.Brain.make(hw)
 hw.pickUp hw.thing("b4")
 expect hb, "x1 = the one [held]; Ask color x1", "Green."
 expect hb, "x1 = a block [taller x2]; x2 = the one [held]; Ask exists x1",
-  "Yes, three of them: the large green cube, the large red block and the blue block."
+  "Yes, three of them: the large green cube, the large red one and the blue one."
 check speech.nameFor(hw, hw.thing("b4")) == "the small green cube", "held things keep their names"
 
 // Clicking on something: "this" and "that".
@@ -244,13 +255,29 @@ check refEquals(w.hand.holding, w.thing("p2")), "still holding the red pyramid"
 check refEquals(b.focus.it, w.thing("p2")), "it is still the red pyramid"
 
 // Words it doesn't know, and sentences it can't parse.
-hear b, "Pick up the frobnicator.", "I don't know the word ""frobnicator""."
+hear b, "Pick up the frobnicator.", "Sorry, I don't know the word ""frobnicator""."
 hear b, "Pick up the block the box.", "I didn't understand the part starting with ""the""."
 
 // Names the user has taught are names in English too.
 hear b, "Put it down.", "OK."
 b.respond "x1 = the block [color red] [size big]" + nl + "Name x1, superblock"
 hear b, "What color is superblock?", "Red."
+
+// Ownership: particular things, or kinds of thing.  A kind is checked when
+// it matters, so it covers things that come to fit it later, and what was
+// said last counts most.
+w = newWorld
+b = brain.Brain.make(w)
+hear b, "Do I own the box?", "I don't know."
+hear b, "The blue pyramid is mine.", "I understand."
+hear b, "Is the blue pyramid mine?", "Yes."
+hear b, "I own blocks which are not red, but I don't own anything which supports a pyramid.", "I understand."
+hear b, "Do I own the box?", "No."
+hear b, "Which blocks do I own?", "The small green cube and the blue one."
+hear b, "Put the red pyramid on the table.", "OK."
+hear b, "Do I own the large green cube?", "Yes."
+hear b, "I don't own the blue block.", "I understand."
+hear b, "Do I own anything which is not in the box?", "Yes, two things: the large green cube and the small green cube."
 
 print checks + " checks, " + failures + " failures."
 exit (failures > 0)

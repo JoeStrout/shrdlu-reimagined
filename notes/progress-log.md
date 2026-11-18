@@ -142,3 +142,79 @@ The console now takes English: each line goes to `Brain.hear`. A line starting w
 Noticed: "Why did you put down the big red block?" (after it was set down to free the hand for another block) gets "I don't remember doing that." That setting-down step doesn't seem to be recorded as a goal; to look at with the Winograd dialogue.
 
 `tests/testConsole.ms`: 57 checks.
+
+### Later: the parser, step 6 begins (Winograd's dialogue)
+
+`tests/testDialogue.ms` is the acceptance test: Winograd's dialogue in English, in order, from the starting scene. Each turn gives his robot's reply; a turn passes when ours says the same. Turns we can't do yet are known gaps, each with a reason (and, for gaps that change the world or the conversation, ICL to do instead, so later turns happen in the right world). Where our reply rightly differs, the turn says what we accept and why. The expected replies were written from memory of the transcript in *Understanding Natural Language* and should be checked against the book. (Winograd's SHRDLU page at Stanford, which had the dialogue, now returns 404.)
+
+First run: 9 of 47 turns as Winograd's. Fixes since:
+
+- "The pyramid", when several fit, now means the one clicked on, or "it", or one of "them" (Brain.inFocus). This gives Winograd's "What is the pyramid supported by?" → "The box." For an inner "the", the description around it gets the first say, and the focus only breaks a tie: otherwise, right after "Put the blue block in the box", the "it" (the blue block) would hijack "the block" in "the green pyramid on the block".
+- "That cube" and "this cube" are "the cube", with the same preference ("Why did you clear off that cube?").
+- "Is it supported?" → "Yes, by the table."
+- "Call the biggest block 'superblock'." (a frame element for a name).
+- "Thank you." → "You're welcome!"
+- Unknown words: "Sorry, I don't know the word …", as Winograd's robot said.
+
+Now 14 turns as Winograd's, 33 known gaps, no failures. The biggest single cause of gaps: our scene isn't Winograd's. His has two large green cubes, and his turn-17 stack used the one without the red pyramid; nine turns depend on that. Next: check the starting scene against his figure, then the remaining language gaps (announcing what "it" was taken to mean, ability questions, ownership, "on top of" clarification, past tense and time clauses, definitions and "build").
+
+`notes/sentences.txt` in the 2008 project has 135 sentences from real SHRDLU dialogs (the dialogue plus many more), to use later as a coverage list.
+
+### 2026-11-18: Winograd's sources
+
+The book (*Understanding Natural Language*, Cognitive Psychology 1972) and the thesis (MIT AI TR-235, 1971) are now scanned in `references/`. Findings are in `references/winograd-scene-and-dialog.md`:
+
+- The exact starting scene is thesis Appendix F, "PLANNER Data for Dialog in Section 1.3" (also the book's last page). It gives every object's position, colour, shape and support, but no sizes. The notes infer sizes from the support heights, the figures and the dialog.
+- The scene has five blocks and three pyramids. Ours lacks the second large green cube, which sits on the large red block.
+- The book's dialog has 44 turns. The thesis has 46: two more after turn 21 ("does the shortest thing the tallest pyramid's support supports…", "what color is it?"), and its turns 13–16 are about *liking* ("the blue pyramid is nice"), not owning.
+- Our `testDialogue.ms`, written from memory, mixes the two versions. Its replies otherwise match the sources.
+
+### 2026-11-18: Winograd's real scene, and his way of naming things
+
+- **The scene.** `scenes.winograd` now follows Appendix F, using Winograd's own ids (b1 to b10, the box). There are two large green cubes; b7 sits on the large red block. The sizes are inferred: b10 is taller than b6, only b1 is narrower than b6, and b10 is bigger than every pyramid but not as wide as the box. The box is 4.5 wide and 3 deep, so b4 and b10 fit side by side.
+- **The old scene is a test fixture.** The provisional scene is now `tests/fixtures.ms` (`earlyScene`). The brain and planner tests use it, because they test mechanics and some rely on its small green cube. Those two tests now run with `MS_IMPORT_PATH=src:tests`.
+- **"Big" uses ratios.** A thing is big if its volume is above the geometric mean of the smallest and largest of its shape, rather than the average. With the average, Winograd's green cubes (volume 8, where the blocks range from 1 to 16) came out "small".
+- **Naming follows Winograd (book §8.3.3).**
+  - A thing gets its color and noun: "the red cube".
+  - If that fits something else, its size goes on too, and when it doesn't matter which one we mean, it's "a large green cube".
+  - "Which…" questions need a specific name. That uses the size if the size is enough. Otherwise it adds "which supports …", or "which is to the right of …".
+  - A thing the user named is "the block named superblock".
+  - Things alike are counted together in lists: "two large green cubes".
+  - The question's own noun becomes "one": "a large red one, a large green cube and the blue one".
+  - Answers to "what", yes-no questions and why/how/when all use the indefinite names. "Which" questions, the planner's messages, and "By …, I assume you mean" use the specific ones.
+- **The dialogue test follows the book's 44 turns**, so turns 13–16 are about owning. The thesis's two extra turns are described in the file's header.
+
+Now 19 turns as Winograd's, 26 known gaps, no failures. These pass for the first time:
+- 7 ("Yes, the red cube.")
+- 18 ("The large green one which supports the red pyramid.")
+- 19 ("Yes, three of them: a large red one, a large green cube and the blue one.")
+- 28 ("To put it on a large green cube.")
+- 29 ("To stack up the red cube, a large red block and a large green cube.")
+
+Turns 25–27 ("When did you pick it up?" and its whys) are about the time the robot picked up the green pyramid in turn 17. It's turn 24's "before…" clause that picks out that time, so they wait on turn 24. Turn 35 will need a decision. In Winograd's system the table had no size, so things on the table never counted as "not as wide as" it. In ours they do, so the large red block and the box would join the answer.
+
+### 2026-11-18: ownership, and better names
+
+**Rule from the user:** where we can give an answer most readers would agree is better than Winograd's (more useful, more natural), we do, and the dialogue test records it with `ours` and `why`. Turn 35 is the first example. In Winograd's system nothing on the table counted as "not as wide as" it, because his table had no size. Our table does have a size, so our answer will include those things too.
+
+**Ownership (turns 13–16, all passing now):**
+- **English.** "The blue pyramid is mine." "I own blocks which are not red, but I don't own anything which supports a pyramid." "Do I own the box?" "Is the red cube mine?" "Which blocks do I own?" "…blocks which I own…"
+  - Statements are a new sentence kind, joined by "and" or "but".
+  - The lexicon gained "own", "mine" and "but".
+- **ICL.** `Own x1` and `DontOwn x1` are declarations; asking uses the predicate `[owned]`.
+- **Brain.** The brain keeps a list of what it was told.
+  - About one particular thing, it stores that thing.
+  - About a kind of thing, it stores the description, checked against the world as it is when the question comes up (`Brain.fitsDescription`). So "I own blocks which are not red" covers a block that only later stops supporting a pyramid.
+  - The newest statement that fits a thing decides. If none fits, the robot doesn't know: `[owned]` is false, but "Do I own the table?" gets "I don't know."
+- **Counts in yes-no answers.** These now include a count when more than one thing matches, as Winograd's did: "Yes, two things: …" ("things" for "anything"/"something", otherwise "of them").
+
+**Names, revised:**
+- **"The" when there's only one.** A thing whose color, size and noun fit nothing else is "the large red block", even when it doesn't matter which. Winograd's robot said "a large red block" there, and ours deliberately doesn't. That changed turns 19, 24 and 29 to accepted differences.
+- **Telling look-alikes apart.** The clause for this now picks one fact that's true of the thing and of none of its look-alikes. In order, it tries:
+  1. what it supports (Winograd's choice)
+  2. what it's on, or "in the box"
+  3. a direction from something that isn't a look-alike
+
+  The old rule listed everything to its left, which came out as "…which is to the left of a large green cube, the red pyramid, the blue block, the box and the blue pyramid".
+
+Now 23 turns as Winograd's (or better), 22 known gaps, no failures.

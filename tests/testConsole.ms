@@ -178,7 +178,7 @@ c.update
 check lastLines(1)[0].indexOf("couldn't read") != null, "bad ICL"
 frame c, "Pick up the frobnicator.", ["ENTER"]
 c.update
-check lastLines(1) == ["I don't know the word ""frobnicator""."], "English the robot can't understand: " + lastLines(1)
+check lastLines(1) == ["Sorry, I don't know the word ""frobnicator""."], "English the robot can't understand: " + lastLines(1)
 frame c, "/nonsense", ["ENTER"]
 check lastLines(1) == ["There's no command /nonsense.  Try /help."], "unknown command"
 frame c, "/help", ["ENTER"]

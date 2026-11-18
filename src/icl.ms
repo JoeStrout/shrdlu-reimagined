@@ -27,7 +27,11 @@
 //                  A question.  q is "exists", "count", "which", "yes-no",
 //                  "why", "how", "when", or "attribute" (attr says which).
 //   declare      {kind:"declare", verb, args}
-//                  Teaching the robot something: Define, Name, Own.
+//                  Teaching the robot something: Define, Name, Own,
+//                  DontOwn.  Own x1 says the user owns what x1
+//                  describes: one thing ("the blue pyramid"), or, for a
+//                  description like "any block [not [color red]]", any
+//                  such thing, now or later.
 //
 // Constraints (the bracketed parts) are all the same shape: {pred, args}.
 // An arg is a variable name (like "x2"), a word ("red"), a number, or another
@@ -45,7 +49,7 @@ pronouns = {"it": false, "that": false, "this": false, "them": true, "they": tru
 questionKinds = ["exists", "count", "which", "yes-no", "why", "how", "when"]
 
 // Statements that teach the robot something, rather than asking it to act.
-declareVerbs = ["define", "name", "own"]
+declareVerbs = ["define", "name", "own", "dontOwn"]
 
 //----------------------------------------------------------------------
 // Small helpers

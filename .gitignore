@@ -8,5 +8,11 @@ myprofile.*
 # Local link to the raylib-miniscript executable (see README)
 /raylib-miniscript
 
+# Scans and text dumps of Winograd's book and thesis (copyrighted; see
+# references/winograd-scene-and-dialog.md for where to get them)
+/references/*.pdf
+/references/*.txt
+/references/.claude/
+
 # Personal Claude Code settings
 .claude/settings.local.json

@@ -78,7 +78,11 @@ end function
 
 // Is this thing "big", "small", or neither?  Size words are relative: a
 // thing is big if its volume is in the upper half of the range for things
-// of the same shape.  (If they're all the same size, it's neither.)
+// of the same shape.  (If they're all the same size, it's neither.)  We
+// judge sizes by ratio, as people do: a cube twice as wide is eight times
+// the volume, so the middle of the range is the geometric mean of the
+// ends, not the average.  In Winograd's scene that makes both green cubes
+// large (volume 8, where the blocks range from 1 to 16).
 sizeClass = function(theWorld, thing)
 	lo = null
 	hi = null
@@ -89,7 +93,7 @@ sizeClass = function(theWorld, thing)
 		if hi == null or v > hi then hi = v
 	end for
 	if hi - lo < eps then return null
-	middle = (hi + lo) / 2
+	middle = sqrt(hi * lo)
 	if thing.volume > middle + eps then return "big"
 	if thing.volume < middle - eps then return "small"
 	return null

@@ -28,8 +28,8 @@
 //     CMD   a command verb and its arguments: "put the block in the box".
 //           It remembers which of the verb's frames it matched.
 //     S     a whole sentence.  Its "kind" says what sort: "command",
-//           "exists", "wh", "attribute", "yes-no", or "event" (why, how,
-//           when).
+//           "exists", "wh", "attribute", "yes-no", "event" (why, how,
+//           when), or "thanks".
 //     WH    the part of a wh-question after the wh-word: "are not in the
 //           box", "does the box contain", "is the pyramid supported by"
 
@@ -454,7 +454,7 @@ Parser.relativeClause = function(pos)
 			results.push result(node("REL", [rp.tree] + c.tree), c.next)
 		end for
 	end for
-	for c in self.youHold(pos) + self.toldYou(pos)
+	for c in self.youHold(pos) + self.toldYou(pos) + self.iOwn(pos)
 		results.push result(node("REL", c.tree), c.next)
 	end for
 	return results
@@ -483,6 +483,7 @@ Parser.clauseBody = function(pos)
 	end for
 	results += self.youHold(pos)
 	results += self.toldYou(pos)
+	results += self.iOwn(pos)
 	return results
 end function
 
@@ -491,6 +492,7 @@ end function
 Parser.predicate = function(pos)
 	results = []
 	results += self.word(pos, "adj")
+	results += self.word(pos, "mine")
 	results += self.prepPhrase(pos)
 	results += self.comparison(pos)
 	for v in self.wordWith(pos, "verb", "posture")
@@ -526,6 +528,22 @@ Parser.youHold = function(pos)
 		for b in self.optionalWord(y.next, "be")
 			for v in self.wordWith(b.next, "verb", "held")
 				results.push result([y.tree] + b.tree + [v.tree], v.next)
+			end for
+		end for
+	end for
+	return results
+end function
+
+// "I own", "I don't own": a list of parts.
+Parser.iOwn = function(pos)
+	results = []
+	for i in self.word(pos, "i")
+		for d in self.optionalWord(i.next, "do")
+			for n in self.optionalNot(d.next)
+				if n.tree and not d.tree then continue     // "I not own"
+				for v in self.wordWith(n.next, "verb", "own")
+					results.push result([i.tree] + d.tree + n.tree + [v.tree], v.next)
+				end for
 			end for
 		end for
 	end for
@@ -619,6 +637,7 @@ end function
 // "on", "onto", "on top of"...).
 Parser.element = function(pos, element)
 	if element == "thing" then return self.nounPhrase(pos)
+	if element == "name" then return self.word(pos, "name")
 	results = []
 	if particles.indexOf(element) != null then
 		for p in self.word(pos, "particle")
@@ -678,9 +697,65 @@ end function
 
 // Every way to read a whole sentence starting here.
 Parser.sentence = function(pos)
-	return self.commandSentence(pos) + self.existsQuestion(pos) +
-	  self.whQuestion(pos) + self.attributeQuestion(pos) +
-	  self.yesNoQuestion(pos) + self.eventQuestion(pos)
+	return self.commandSentence(pos) + self.statementSentence(pos) +
+	  self.existsQuestion(pos) + self.whQuestion(pos) +
+	  self.attributeQuestion(pos) + self.yesNoQuestion(pos) +
+	  self.eventQuestion(pos) + self.thanks(pos)
+end function
+
+// Telling the robot something: "The blue pyramid is mine."  "I own blocks
+// which are not red, but I don't own anything which supports a pyramid."
+Parser.statementSentence = function(pos)
+	results = []
+	for c in self.statements(pos)
+		results.push result(sentenceNode("statement", c.tree), c.next)
+	end for
+	return results
+end function
+
+// One or more statements, joined by "and" or "but": a list of results
+// whose trees are lists of parts.
+Parser.statements = function(pos)
+	results = []
+	for c in self.ownStatement(pos)
+		results.push result([c.tree], c.next)
+		for j in self.word(c.next, "and") + self.word(c.next, "but")
+			for rest in self.statements(j.next)
+				results.push result([c.tree, j.tree] + rest.tree, rest.next)
+			end for
+		end for
+	end for
+	return results
+end function
+
+// "I [don't] own blocks which are not red", "the blue pyramid is [not]
+// mine": an OWN node.
+Parser.ownStatement = function(pos)
+	results = []
+	for o in self.iOwn(pos)
+		for np in self.nounPhrase(o.next)
+			results.push result(node("OWN", o.tree + [np.tree]), np.next)
+		end for
+	end for
+	for np in self.nounPhrase(pos)
+		for b in self.word(np.next, "be")
+			for n in self.optionalNot(b.next)
+				for m in self.word(n.next, "mine")
+					results.push result(node("OWN", [np.tree, b.tree] + n.tree + [m.tree]), m.next)
+				end for
+			end for
+		end for
+	end for
+	return results
+end function
+
+// "Thank you."
+Parser.thanks = function(pos)
+	results = []
+	for t in self.word(pos, "thanks")
+		results.push result(sentenceNode("thanks", [t.tree]), t.next)
+	end for
+	return results
 end function
 
 // "Will you please pick up a block and put it in the box"
@@ -740,6 +815,12 @@ Parser.whRest = function(pos)
 	for b in self.word(pos, "be")
 		for t in self.word(b.next, "there")
 			results.push result(node("WH", [b.tree, t.tree]), t.next)
+		end for
+	end for
+	// "... do I own"
+	for d in self.word(pos, "do")
+		for o in self.iOwn(d.next)
+			results.push result(node("WH", [d.tree] + o.tree), o.next)
 		end for
 	end for
 	// "... does the box contain"
@@ -805,6 +886,15 @@ Parser.yesNoQuestion = function(pos)
 			end for
 		end for
 	end for
+	// "Do I own the box?"  (The claim comes before the noun phrase here,
+	// but the parts are in the same order as above.)
+	for d in self.word(pos, "do")
+		for o in self.iOwn(d.next)
+			for np in self.nounPhrase(o.next)
+				results.push result(sentenceNode("yes-no", [d.tree, np.tree, node("REL", o.tree)]), np.next)
+			end for
+		end for
+	end for
 	return results
 end function
 
@@ -854,7 +944,7 @@ end function
 parse = function(text, names=null)
 	tokens = tokenize(text, names)
 	word = unknownWord(tokens)
-	if word then return {"trees": [], "error": "I don't know the word """ + word + """."}
+	if word then return {"trees": [], "error": "Sorry, I don't know the word """ + word + """."}
 	p = Parser.make(tokens)
 	trees = []
 	for r in p.sentence(0)
@@ -875,7 +965,7 @@ end function
 parseNounPhrase = function(text, names=null)
 	tokens = tokenize(text, names)
 	word = unknownWord(tokens)
-	if word then return {"trees": [], "error": "I don't know the word """ + word + """."}
+	if word then return {"trees": [], "error": "Sorry, I don't know the word """ + word + """."}
 	p = Parser.make(tokens)
 	trees = []
 	for r in p.nounPhrase(0)

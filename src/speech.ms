@@ -1,15 +1,36 @@
 // speech.ms
 //
-// Turning things back into English: names for objects ("the large green
-// cube"), lists ("the red block and the blue pyramid"), and numbers.
+// Turning things back into English: names for objects ("the red cube", "a
+// large green cube"), lists ("the blue pyramid and the blue block"), and
+// numbers.
 //
-// A good name for an object says just enough to pick it out, the way a person
-// would: "the red block" if there's only one, "the large green cube" if there
-// are two green cubes, "the green cube which is on the red block" if size
-// doesn't settle it either.
+// We name things the way Winograd's robot did (see "Understanding Natural
+// Language", section 8.3.3):
+//
+//   - The box and the table are "the box" and "the table", and something
+//     the user has named is "the block named superblock".
+//   - Anything else gets its noun and color.  If that fits nothing else,
+//     it's "the red cube".
+//   - If not, the size goes on too: "the large red block".
+//   - If that still fits something else, then when it doesn't matter which
+//     one we mean, it's "a large green cube": "What does the box contain?",
+//     or "To put it on a large green cube."
+//   - When it does matter (answering "Which cube...?"), we say more: "the
+//     large green cube which supports the red pyramid" (see whichClause).
+//
+// (Winograd's robot said "a large red block" even when there was only one,
+// apparently because "red block" alone wasn't enough.  "The large red
+// block" is better, so we say that.)
+//
+// A thing whose noun is the one in the question is called "one": "Is there
+// a large block behind a pyramid?"  "Yes, three of them: a large red one, a
+// large green cube and the blue one."
 
 import "relations"
 import "icl"
+import "world"
+
+containsRef = @world.containsRef
 
 numberWords = ["none", "one", "two", "three", "four", "five", "six",
   "seven", "eight", "nine", "ten", "eleven", "twelve"]
@@ -40,61 +61,123 @@ sizeWord = function(theWorld, thing)
 	return null
 end function
 
-// A definite name for a thing, like "the large green cube".
-// `depth` limits how far we go with "which is on..." clauses.
-nameFor = function(theWorld, thing, depth=0)
-	if thing.shape == "table" then return "the table"
-	words = [thing.noun]
-	// Everything else it might be confused with: everything else its noun
-	// fits.  (A cube is a block too, so "the red block" has to rule out a
-	// red cube.)
-	rivals = []
-	for t in theWorld.things
-		if refEquals(t, thing) or t.shape == "table" then continue
-		if relations.nounFits(t, thing.noun) then rivals.push t
+// The name for a thing.  `specific` says whether it must pick out just
+// this thing (see above).  `noun` is the question's noun, if any, to be
+// replaced by "one".
+nameFor = function(theWorld, thing, specific=true, noun=null)
+	if thing.shape == "table" or thing.shape == "box" then return "the " + thing.shape
+	myNoun = thing.noun
+	if myNoun == noun then myNoun = "one"
+	if thing.names then return "the " + myNoun + " named " + thing.names[0]
+	words = [thing.color, myNoun]
+	rivals = lookalikes(theWorld, thing)
+	if not rivals then return "the " + words.join(" ")
+	size = sizeWord(theWorld, thing)
+	if size then words.insert 0, size
+	sameSize = []
+	for t in rivals
+		if sizeWord(theWorld, t) == size then sameSize.push t
 	end for
-	// The box has no rivals, and "the white box" would sound odd; everything
-	// else gets its color, which is how Winograd's robot talked.
-	if rivals or thing.shape != "box" then
-		words.insert 0, thing.color
-		sameColor = []
-		for t in rivals
-			if t.color == thing.color then sameColor.push t
-		end for
-		rivals = sameColor
-	end if
-	if rivals then
-		size = sizeWord(theWorld, thing)
-		if size then
-			sameSize = []
-			for t in rivals
-				if sizeWord(theWorld, t) == size then sameSize.push t
-			end for
-			if sameSize.len < rivals.len then
-				words.insert 0, size
-				rivals = sameSize
-			end if
-		end if
-	end if
-	name = "the " + words.join(" ")
-	if rivals and depth < 2 then name += whereClause(theWorld, thing, depth)
-	return name
+	if not sameSize then return "the " + words.join(" ")
+	if not specific then return withArticle(words.join(" "))
+	return "the " + words.join(" ") + whichClause(theWorld, thing, sameSize)
 end function
 
-// A clause saying where a thing is, like " which is on the red block".
-whereClause = function(theWorld, thing, depth)
+// The other things that this thing's color and noun fit.  (A cube is a
+// block too, so "red block" fits a red cube.)
+lookalikes = function(theWorld, thing)
+	result = []
+	for t in theWorld.things
+		if refEquals(t, thing) then continue
+		if t.color == thing.color and relations.nounFits(t, thing.noun) then result.push t
+	end for
+	return result
+end function
+
+// "a large green cube", "an orange block"
+withArticle = function(phrase)
+	if "aeiou".indexOf(phrase[0]) != null then return "an " + phrase
+	return "a " + phrase
+end function
+
+// What tells a thing apart from its rivals (the other things its name
+// would fit): " which I am holding", " which supports the red pyramid"
+// (Winograd's robot's favorite), " which is on the large red block", or
+// " which is to the right of the blue block" (or left of, behind, or in
+// front of).  We use the first that's true of this thing and of none of
+// its rivals.
+whichClause = function(theWorld, thing, rivals)
 	if refEquals(theWorld.hand.holding, thing) then return " which I am holding"
-	if not thing.supporters then return ""
-	under = thing.supporters[0]
-	if under.shape == "box" then return " which is in the box"
-	return " which is on " + nameFor(theWorld, under, depth + 1)
+	for c in clauseChoices(theWorld, thing, rivals)
+		related = @relations.binary[c[0]]
+		if not related(theWorld, thing, c[1]) then continue
+		unique = true
+		for r in rivals
+			if related(theWorld, r, c[1]) then unique = false
+		end for
+		if unique then return " which " + c[2] + " " + nameFor(theWorld, c[1], false)
+	end for
+	return ""
 end function
 
-// Names for a list of things: "the red block and the blue pyramid".
-namesFor = function(theWorld, things)
+// The clauses whichClause can choose from, best first: [relation, other
+// thing, words].  (Not "to the left of a red cube" for a red cube, though:
+// a direction is from something other than its rivals.)
+clauseChoices = function(theWorld, thing, rivals)
+	choices = []
+	for t in theWorld.thingsOn(thing)
+		choices.push ["supports", t, "supports"]
+	end for
+	for t in thing.supporters
+		if t.shape == "box" then choices.push ["in", t, "is in"] else choices.push ["on", t, "is on"]
+	end for
+	directions = [["rightOf", "is to the right of"], ["leftOf", "is to the left of"],
+	  ["behind", "is behind"], ["inFrontOf", "is in front of"]]
+	for d in directions
+		for t in theWorld.things
+			if t.shape == "table" or refEquals(t, thing) or containsRef(rivals, t) then continue
+			choices.push [d[0], t, d[1]]
+		end for
+	end for
+	return choices
+end function
+
+// Names for a list of things: "the blue pyramid and the blue block".
+// These don't need to say which is which, so things alike are counted
+// together: "the red cube, two large green cubes and a large red block".
+namesFor = function(theWorld, things, noun=null)
+	names = []
+	counts = {}
+	for t in things
+		name = nameFor(theWorld, t, false, noun)
+		if counts.hasIndex(name) then
+			counts[name] += 1
+		else
+			counts[name] = 1
+			names.push name
+		end if
+	end for
+	parts = []
+	for name in names
+		n = counts[name]
+		if n == 1 then parts.push name else parts.push numberWord(n) + " " + pluralPhrase(name)
+	end for
+	return listPhrase(parts)
+end function
+
+// "a large green cube" -> "large green cubes"
+pluralPhrase = function(name)
+	words = name.split(" ")[1:]
+	words[-1] = icl.pluralize(words[-1])
+	return words.join(" ")
+end function
+
+// Names that pick out each thing: "the large green cube which supports
+// the red pyramid".
+specificNamesFor = function(theWorld, things, noun=null)
 	parts = []
 	for t in things
-		parts.push nameFor(theWorld, t)
+		parts.push nameFor(theWorld, t, true, noun)
 	end for
 	return listPhrase(parts)
 end function
@@ -137,7 +220,7 @@ goalPhrase = function(theWorld, goal, form, it=null)
 	for t in goal.args
 		// ("It" only for one thing alone, not in a list: "stack up the red
 		// cube, it and the box" would be confusing.)
-		if refEquals(t, it) and goal.kind != "stack" then names.push "it" else names.push nameFor(theWorld, t)
+		if refEquals(t, it) and goal.kind != "stack" then names.push "it" else names.push nameFor(theWorld, t, false)
 	end for
 	entry = goalVerbs[goal.kind]
 	verb = entry[form == "ing"]
@@ -151,8 +234,8 @@ end function
 
 // " on the red block", or " in the box".
 placePhrase = function(theWorld, target)
-	if target.shape == "box" then return " in " + nameFor(theWorld, target)
-	return " on " + nameFor(theWorld, target)
+	if target.shape == "box" then return " in " + nameFor(theWorld, target, false)
+	return " on " + nameFor(theWorld, target, false)
 end function
 
 // The last step of putting something somewhere: "setting it down on the table".
