@@ -88,7 +88,7 @@ check not relations.binary.touches(pw, pb4, pw.thing("b3")), "but not the lintel
 // Speech
 //----------------------------------------------------------------------
 
-check speech.nameFor(w, b3) == "the red block", "the red block"
+check speech.nameFor(w, b3) == "the large red block", "the large red block (a cube is a block too)"
 check speech.nameFor(w, b1) == "the red cube", "the red cube"
 check speech.nameFor(w, b2) == "the large green cube", "the large green cube"
 check speech.nameFor(w, b4) == "the small green cube", "the small green cube"
@@ -118,7 +118,7 @@ expect b, "x1 = the pyramid [color blue]; Ask size x1", "Large."
 expect b, "x1 = the pyramid [littlest]; Ask color x1", "Green."
 
 // "Is there a big red block?"
-expect b, "x1 = a block [color red] [size big]; Ask exists x1", "Yes, the red block."
+expect b, "x1 = a block [color red] [size big]; Ask exists x1", "Yes, the large red block."
 expect b, "x1 = a block [color yellow]; Ask exists x1", "No."
 expect b, "x1 = a pyramid [on x2]; x2 = a cube; Ask exists x1",
   "Yes, two of them: the green pyramid and the red pyramid."
@@ -137,7 +137,7 @@ expect b, "x1 = how-many blocks [not [in x2]]; x2 = the box; Ask count x1", "Fiv
 // "Is at least one of them narrower than the red cube?"  ("Them" is those five.)
 expect b, "x1 = at-least-1 of them; x2 = the cube [color red]; Ask yes-no x1 [narrower x2]", "No."
 expect b, "x1 = at-least-1 of them; x2 = the cube [color red]; Ask yes-no x1 [wider x2]",
-  "Yes, the large green cube and the red block."
+  "Yes, the large green cube and the large red block."
 // "Is it taller than..." with "the" and "every".
 expect b, "x1 = the cube [color red]; x2 = the block [color blue]; Ask yes-no x1 [shorter x2]", "Yes."
 expect b, "x1 = every pyramid; x2 = the box; Ask yes-no x1 [in x2]", "No."
@@ -157,7 +157,7 @@ expect b, "x1 = the cube [on x2]; x2 = superblock; Ask size x1", "Small."
 
 // "One" borrows a noun from earlier in the sentence.
 expect b, "x1 = a block [taller x2]; x2 = the one [color red] [size small]; Ask exists x1",
-  "Yes, three of them: the large green cube, the red block and the blue block."
+  "Yes, three of them: the large green cube, the large red block and the blue block."
 
 // Things we can't do or don't know.
 fresh = brain.Brain.make(newWorld)
@@ -168,8 +168,8 @@ expect fresh, "x1 = a widget; Ask exists x1", "I don't know the word ""widget"".
 expect fresh, "x1 = a block [on x2]; x2 = a pyramid [under x1]; Ask exists x1", "I don't know what ""under"" means."
 expect fresh, "x1 = a block [on x2]; x2 = a block [supports x1]; Ask exists x1",
   "(I went in circles: x1 is described in terms of itself.)"
-expect fresh, "x1 = it; e1 = event PickUp x1; Ask why e1", "Sorry, I can't answer questions about the past yet."
-expect fresh, "x1 = a block; PickUp x1", "Sorry, I can't do that yet."
+expect fresh, "x1 = it; e1 = event PickUp x1; Ask why e1", "I don't know what you mean by ""it""."
+expect fresh, "x1 = a block; Juggle x1", "Sorry, I don't know how to juggle."
 expect fresh, "x1 = a block [on x2", "(I couldn't read that ICL: line 1: missing ])"
 
 // Holding something: "the one you are holding".  With no noun anywhere in
@@ -179,7 +179,7 @@ hb = brain.Brain.make(hw)
 hw.pickUp hw.thing("b4")
 expect hb, "x1 = the one [held]; Ask color x1", "Green."
 expect hb, "x1 = a block [taller x2]; x2 = the one [held]; Ask exists x1",
-  "Yes, three of them: the large green cube, the red block and the blue block."
+  "Yes, three of them: the large green cube, the large red block and the blue block."
 check speech.nameFor(hw, hw.thing("b4")) == "the small green cube", "held things keep their names"
 
 // Clicking on something: "this" and "that".

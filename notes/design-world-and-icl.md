@@ -148,7 +148,7 @@ Goal
   turn      7                  // the user command that started the chain
   status    "done" / "failed" / "active"
   start     [7, 0]
-  end       [7, 5]
+  finish    [7, 5]               // ("end" is a MiniScript keyword)
 ```
 
 Goal procedures create sub-goals as they work (`putOn(X, Y)` → `clearOff(Y)` → `getRidOf(Z)` → …). The result is a **goal tree**, and that tree *is* the explanation:
@@ -394,7 +394,8 @@ The reader is strict about structure but reports problems instead of stopping: e
 | `src/relations.ms` | the spatial and comparative relations of §1.7, including "as of time t" |
 | `src/speech.ms` | English output: names for objects ("the large green cube"), lists, numbers |
 | `src/brain.ms` | reference resolution, question answering, and (next) commands and the planner |
-| `src/history.ms` | Goal, Event, snapshots, and querying the past |
+| `src/planner.ms` | Goal, and the goal procedures: grasp, putOn, clearOff, getRidOf, stack, plus finding free space |
+| (`src/world.ms`) | events and snapshots live with the world; querying the past is in `brain.ms` (a separate `history.ms` turned out not to be needed yet) |
 | `src/icl.ms` | ICL constructors, the pretty-printer, and the reader for the printed form |
 | `src/display.ms` | the raylib 3D scene: drawing, camera, picking, the hand animation |
 | `src/scenes.ms` | the starting scenes, as data |

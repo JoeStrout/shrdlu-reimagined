@@ -45,11 +45,13 @@ end function
 nameFor = function(theWorld, thing, depth=0)
 	if thing.shape == "table" then return "the table"
 	words = [thing.noun]
-	// Everything else it might be confused with.
+	// Everything else it might be confused with: everything else its noun
+	// fits.  (A cube is a block too, so "the red block" has to rule out a
+	// red cube.)
 	rivals = []
 	for t in theWorld.things
 		if refEquals(t, thing) or t.shape == "table" then continue
-		if t.noun == thing.noun then rivals.push t
+		if relations.nounFits(t, thing.noun) then rivals.push t
 	end for
 	// The box has no rivals, and "the white box" would sound odd; everything
 	// else gets its color, which is how Winograd's robot talked.
@@ -111,4 +113,49 @@ descriptionPhrase = function(desc, plural=null)
 	if plural then noun = icl.pluralize(noun)
 	words.push noun
 	return words.join(" ")
+end function
+
+//----------------------------------------------------------------------
+// Talking about goals, for "why", "how", and "when" questions.
+//----------------------------------------------------------------------
+
+// The verb for each kind of goal: [to-form, ing-form, particle].  Verbs
+// like "pick up" have a particle that moves after a pronoun: we say "pick
+// up the red cube" but "pick it up".
+goalVerbs = {
+  "grasp":    ["pick", "picking", "up"],
+  "putOn":    ["put", "putting", ""],
+  "clearOff": ["clean", "cleaning", "off"],
+  "getRidOf": ["get rid of", "getting rid of", ""],
+  "stack":    ["stack", "stacking", "up"]}
+
+// A phrase for a goal: "get rid of it", "putting the red cube in the box".
+// `form` is "to" or "ing".  Whatever the conversation is focused on (`it`)
+// is called "it", as a person would.
+goalPhrase = function(theWorld, goal, form, it=null)
+	names = []
+	for t in goal.args
+		// ("It" only for one thing alone, not in a list: "stack up the red
+		// cube, it and the box" would be confusing.)
+		if refEquals(t, it) and goal.kind != "stack" then names.push "it" else names.push nameFor(theWorld, t)
+	end for
+	entry = goalVerbs[goal.kind]
+	verb = entry[form == "ing"]
+	particle = entry[2]
+	if goal.kind == "putOn" then return verb + " " + names[0] + placePhrase(theWorld, goal.args[1])
+	object = listPhrase(names)
+	if not particle then return verb + " " + object
+	if object == "it" then return verb + " it " + particle
+	return verb + " " + particle + " " + object
+end function
+
+// " on the red block", or " in the box".
+placePhrase = function(theWorld, target)
+	if target.shape == "box" then return " in " + nameFor(theWorld, target)
+	return " on " + nameFor(theWorld, target)
+end function
+
+// The last step of putting something somewhere: "setting it down on the table".
+settingDownPhrase = function(theWorld, target)
+	return "setting it down" + placePhrase(theWorld, target)
 end function

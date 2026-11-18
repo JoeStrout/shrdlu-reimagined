@@ -13,6 +13,7 @@ import "geometry"
 import "world"
 import "scenes"
 import "display"
+import "brain"
 
 failures = 0
 checks = 0
@@ -90,6 +91,21 @@ hit = view.pick({"x": -3.5, "y": -2})
 check hit != null and hit.thing.id == "b3", "picking finds the lintel on top of the arch"
 hit = view.pick({"x": 5.5, "y": 3.5})
 check hit != null and hit.thing.id == "table", "picking empty space finds the table"
+
+// A planned command, with many steps (clearing things off, stacking): the
+// display plays them all and ends up matching the world.
+w = world.World.make
+w.load scenes.byName.winograd
+view = display.Display.make(w)
+b = brain.Brain.make(w)
+reply = b.respond("x1 = 2 blocks [color red]" + char(10) + "x2 = a cube [color green]" + char(10) + "Stack x1, x2")
+check reply == "OK.", "the stacking command works: " + reply
+playOut view
+allMatch = true
+for t in w.movableThings
+	if not near3(view.drawnPos(t), t.pos) then allMatch = false
+end for
+check allMatch, "after a planned command, everything is drawn where the world says"
 
 print checks + " checks, " + failures + " failures."
 // Exit with a nonzero code if anything failed, so scripts can tell.

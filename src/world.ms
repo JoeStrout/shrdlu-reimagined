@@ -215,6 +215,8 @@ World.make = function(tableWidth=12, tableDepth=8)
 	w.things.push w.table
 	w.hand = {"holding": null, "pos": [0, World.cruiseHeight, -tableDepth/2]}
 	w.history = []   // list of events, oldest first
+	w.goals = []     // every goal the planner has worked on, oldest first
+	w.currentGoal = null   // the goal being worked on now (set by the planner)
 	w.turn = 0       // increases with each sentence from the user
 	w.step = 0       // increases with each event within a turn
 	return w
@@ -397,7 +399,7 @@ end function
 World.record = function(action, info)
 	self.step += 1
 	event = {"time": [self.turn, self.step], "action": action,
-	  "before": self.snapshot, "goal": null}
+	  "before": self.snapshot, "goal": self.currentGoal}
 	for kv in info
 		event[kv.key] = kv.value
 	end for

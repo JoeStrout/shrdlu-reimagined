@@ -42,6 +42,7 @@ MS_IMPORT_PATH=src miniscript tests/testWorld.ms
 MS_IMPORT_PATH=src:tests miniscript tests/testDisplay.ms
 MS_IMPORT_PATH=src miniscript tests/testIcl.ms
 MS_IMPORT_PATH=src miniscript tests/testBrain.ms
+MS_IMPORT_PATH=src miniscript tests/testPlanner.ms
 ```
 
 ## History

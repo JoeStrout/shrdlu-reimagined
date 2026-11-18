@@ -15,7 +15,8 @@
 //
 // PROVISIONAL: a best guess, not yet checked against Winograd's figure.  The
 // dialogue requires, for example, that a green cube sits on the large red
-// block, that there are three pyramids, that the box holds the blue pyramid,
+// block, that there are three pyramids, that the box holds the blue pyramid (off to one side, leaving room
+// for the blue block),
 // that the large green cube supports the red pyramid, and that a blue block
 // is taller than the large red block.  We'll tune this until the whole
 // dialogue runs correctly.
@@ -28,7 +29,7 @@ winograd = [
 	{"id": "b4", "kind": "block",   "color": "green", "size": [1, 1, 1],     "at": [1.5, 1.5]},
 	{"id": "b5", "kind": "block",   "color": "blue",  "size": [1, 3, 1],     "at": [-3.5, -2]},
 	{"id": "box", "kind": "box",    "color": "white", "size": [3, 1.5, 3],   "at": [4, -2]},
-	{"id": "p3", "kind": "pyramid", "color": "blue",  "size": [1, 1.5, 1],   "at": [4, -2]}]
+	{"id": "p3", "kind": "pyramid", "color": "blue",  "size": [1, 1.5, 1],   "at": [3.25, -2]}]
 
 // A playground for trying out building: posts and lintels for arches,
 // cylinders, and pyramids whose tips are level with block tops.

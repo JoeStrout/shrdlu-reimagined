@@ -3,14 +3,16 @@
 // The robot's brain: it takes a sentence's meaning (as ICL), works out what
 // the user is talking about, and answers or acts.
 //
-// This part covers understanding references and answering questions:
+// It covers:
 //
 //   - Reference resolution: which actual objects does "the big red block",
 //     "it", "them", or "the one you are holding" mean?  (Design note §2.4.)
 //   - Questions: is there..., how many..., which..., what color..., and
 //     yes/no questions like "is it taller than the blue block?"
-//
-// Commands, planning, and questions about the past (why, how, when) come next.
+//   - Commands: pick up, put on, clear off, stack up...  The planner
+//     (planner.ms) does the work and keeps a record of its goals.
+//   - Questions about what it did: why, how, and when, answered from that
+//     record of goals.
 //
 // How resolution works.  A description like
 //     x1 = a block [color red] [on x2]
@@ -31,12 +33,18 @@ import "icl"
 import "world"
 import "relations"
 import "speech"
+import "planner"
+
+containsRef = @world.containsRef
 
 Brain = {}
 Brain.world = null
 
-// What we've been talking about, for "it", "them", and "one".
-Brain.focus = null      // {it: Thing, them: list of Things, noun: string}
+// What we've been talking about, for "it", "them", "one", and "do that".
+Brain.focus = null      // {it: Thing, them: list of Things, noun: string, event: Goal}
+
+// The planner that carries out commands.
+Brain.planner = null
 
 // The object the user last clicked on, for "this" and "that".
 Brain.selected = null
@@ -44,13 +52,15 @@ Brain.selected = null
 // Per-sentence working state.
 Brain.prog = null       // the ICL program being handled
 Brain.cache = null      // var -> candidates, so each is only worked out once
+Brain.chosen = null     // var -> the things picked for "a block" etc. in a command
 Brain.busy = null       // vars being resolved right now (to catch loops)
 Brain.problem = null    // a reply explaining what went wrong, or null
 
 Brain.make = function(theWorld)
 	b = new Brain
 	b.world = theWorld
-	b.focus = {"it": null, "them": null, "noun": null}
+	b.focus = {"it": null, "them": null, "noun": null, "event": null}
+	b.planner = planner.Planner.make(theWorld)
 	return b
 end function
 
@@ -71,8 +81,12 @@ Brain.respond = function(prog)
 	if prog isa string then prog = icl.read(prog)
 	if prog.errors then return "(I couldn't read that ICL: " + prog.errors[0] + ")"
 	self.prog = prog
+	self.chosen = {}
+	self.world.beginTurn
 	replies = []
 	for statement in prog.statements
+		// (Each statement may change the world, so candidates are worked
+		// out afresh for each one.)
 		self.cache = {}
 		self.busy = {}
 		self.problem = null
@@ -81,13 +95,15 @@ Brain.respond = function(prog)
 			replies.push self.problem
 			break
 		end if
-		replies.push reply
+		// "Find a block ... and put it in the box" gets just one "OK."
+		if not replies or reply != replies[-1] then replies.push reply
 	end for
 	return replies.join(" ")
 end function
 
 Brain.handle = function(statement)
 	if statement.kind == "ask" then return self.answer(statement)
+	if statement.kind == "command" then return self.command(statement)
 	if statement.kind == "declare" and statement.verb == "name" then return self.giveName(statement)
 	return "Sorry, I can't do that yet."
 end function
@@ -195,6 +211,7 @@ Brain.test = function(thing, c)
 		end for
 		return false
 	end if
+	if pred == "commanded" then return self.wasCommanded(thing, c.args)
 	if relations.unary.hasIndex(pred) then return relations.unary[pred](self.world, thing)
 	if relations.valued.hasIndex(pred) then return relations.valued[pred](self.world, thing, c.args[0])
 	if relations.binary.hasIndex(pred) then
@@ -278,9 +295,7 @@ end function
 //----------------------------------------------------------------------
 
 Brain.answer = function(q)
-	if q.q == "why" or q.q == "how" or q.q == "when" then
-		return "Sorry, I can't answer questions about the past yet."
-	end if
+	if q.q == "why" or q.q == "how" or q.q == "when" then return self.answerAboutEvent(q)
 	if q.q == "exists" then return self.answerExists(q.target)
 	if q.q == "count" then return self.answerCount(q.target)
 	if q.q == "which" then return self.answerWhich(q.target)
@@ -360,6 +375,275 @@ Brain.answerYesNo = function(var, claim)
 		return "Yes, " + speech.namesFor(self.world, meeting) + "."
 	end if
 	return "Yes."
+end function
+
+//----------------------------------------------------------------------
+// Commands
+//----------------------------------------------------------------------
+
+// The commands we understand, and the kind of goal each one sets.
+// ("putDown" and "find" are handled here rather than by the planner.)
+commandGoals = {
+  "pickUp": "grasp", "grasp": "grasp",
+  "putOn": "putOn", "putIn": "putOn", "putDown": "putDown", "drop": "putDown",
+  "clearOff": "clearOff", "cleanOff": "clearOff",
+  "getRidOf": "getRidOf",
+  "stack": "stack", "stackUp": "stack",
+  "find": "find"}
+
+Brain.command = function(cmd)
+	if not commandGoals.hasIndex(cmd.verb) then
+		return "Sorry, I don't know how to " + cmd.verb + "."
+	end if
+	kind = commandGoals[cmd.verb]
+	// Work out what each argument means.
+	groups = []
+	for var in cmd.args
+		things = self.choose(var)
+		if things == null then return null
+		groups.push things
+	end for
+
+	// Turn the command into a list of goals for the planner.
+	table = self.world.table
+	goals = []
+	if kind == "find" then
+		if groups.len != 1 then return self.fail("(Find needs one thing.)")
+	else if kind == "grasp" then
+		if groups.len != 1 then return self.fail("(" + cmd.verb + " needs one thing.)")
+		if groups[0].len > 1 then return self.fail("I can only hold one thing at a time.")
+		goals.push ["grasp", groups[0]]
+	else if kind == "putDown" then
+		if not groups then
+			if not self.world.hand.holding then return self.fail("I'm not holding anything.")
+			groups.push [self.world.hand.holding]
+		end if
+		for t in groups[0]
+			goals.push ["putOn", [t, table]]
+		end for
+	else if kind == "putOn" then
+		if groups.len != 2 then return self.fail("(" + cmd.verb + " needs two things.)")
+		if groups[1].len > 1 then return self.fail("I can only put things in one place at a time.")
+		for t in groups[0]
+			goals.push ["putOn", [t, groups[1][0]]]
+		end for
+	else if kind == "stack" then
+		all = []
+		for g in groups
+			all += g
+		end for
+		goals.push ["stack", all]
+	else
+		// clearOff and getRidOf: one goal for each thing.
+		for t in groups[0]
+			goals.push [kind, [t]]
+		end for
+	end if
+
+	// Carry them out.  Each one the user asked for directly is marked with
+	// the verb they used (for "the one I told you to pick up").
+	for g in goals
+		first = self.world.goals.len
+		problem = self.planner.achieve(g[0], g[1])
+		root = self.world.goals[first]
+		root.verb = cmd.verb
+		self.focus.event = root
+		if problem then return self.fail(problem)
+	end for
+	if cmd.args then self.noteFocus cmd.args[0], groups[0]
+	return "OK."
+end function
+
+// The things a command's argument means.  "The" and "every" mean what they
+// always do; for "a block" or "two blocks", we pick the ones that are least
+// trouble: the one in the hand, then ones with nothing on top, then the
+// nearest.  The choice is remembered for the rest of the sentence, so that
+// "find a block ... and put it in the box" means the same block both times.
+Brain.choose = function(var)
+	if self.chosen.hasIndex(var) then return self.chosen[var]
+	d = self.lookup(var)
+	if d == null then return null
+	if d.det == null or d.det == "the" then
+		things = self.definite(var)
+	else
+		things = self.candidates(var)
+		if things == null then return null
+		want = things.len
+		if d.det == "a" or d.det == "any" or d.det == "which" then want = 1
+		if d.det == "number" or d.det == "at-least" then want = d.n
+		if things.len == 0 or things.len < want then
+			return self.fail("I don't see enough " + speech.descriptionPhrase(d, true) + ".")
+		end if
+		things = self.leastTrouble(things)[:want]
+	end if
+	if things == null then return null
+	self.chosen[var] = things
+	return things
+end function
+
+// Sort things by how much trouble they'd be to pick up.
+Brain.leastTrouble = function(things)
+	hand = self.world.hand
+	scored = []
+	for t in things
+		cost = 0
+		if not refEquals(t, hand.holding) then
+			cost = 100
+			for other in self.world.things
+				if relations.binary.above(self.world, other, t) then cost += 100
+			end for
+			dx = t.x - hand.pos[0]
+			dz = t.z - hand.pos[2]
+			cost += sqrt(dx*dx + dz*dz)
+		end if
+		scored.push {"thing": t, "cost": cost}
+	end for
+	scored.sort "cost"
+	result = []
+	for s in scored
+		result.push s.thing
+	end for
+	return result
+end function
+
+// [commanded PickUp]: did the user tell us to do that to this thing?
+Brain.wasCommanded = function(thing, args)
+	for g in self.world.goals
+		if g.parent or not g.hasIndex("verb") then continue
+		if args and g.verb != icl.uncapitalize(args[0]) then continue
+		if containsRef(g.args, thing) then return true
+	end for
+	return false
+end function
+
+//----------------------------------------------------------------------
+// Questions about the past: why, how, and when
+//----------------------------------------------------------------------
+
+// The kinds of goal each event verb can mean.
+eventGoals = {
+  "pickUp": "grasp", "grasp": "grasp",
+  "putOn": "putOn", "putIn": "putOn", "putDown": "putOn",
+  "clearOff": "clearOff", "cleanOff": "clearOff",
+  "getRidOf": "getRidOf",
+  "stack": "stack", "stackUp": "stack"}
+
+// Times are [turn, step]; this makes them easy to compare.
+timeValue = function(t)
+	return t[0] * 100000 + t[1]
+end function
+
+// Which goal an event description means: the most recent one that fits.
+// "Do" with no arguments ("why did you do that?") means the goal we were
+// just talking about.
+Brain.findGoal = function(var)
+	e = self.lookup(var)
+	if e == null then return null
+	if e.kind != "event" then return self.fail("(" + var + " isn't an event.)")
+	if e.verb == "do" and not e.args then
+		if self.focus.event == null then return self.fail("I don't know what you mean.")
+		return self.focus.event
+	end if
+	if not eventGoals.hasIndex(e.verb) then return self.fail("I don't know what it means to " + e.verb + ".")
+	kind = eventGoals[e.verb]
+	// What each argument refers to.
+	refs = []
+	for a in e.args
+		ref = self.refer(a)
+		if ref == null then return null
+		refs.push ref.things
+	end for
+	// The other events its time constraints refer to.
+	others = []
+	for c in e.props
+		other = self.findGoal(c.args[0])
+		if other == null then return null
+		others.push other
+	end for
+	for i in range(self.world.goals.len - 1, 0, -1)
+		g = self.world.goals[i]
+		if g.kind != kind then continue
+		if not self.goalArgsFit(g, refs) then continue
+		if not self.goalTimesFit(g, e.props, others) then continue
+		return g
+	end for
+	if self.problem then return null
+	return self.fail("I don't remember doing that.")
+end function
+
+// Does each argument of the event match the goal?  (For a stack, which has
+// any number of things, each argument just has to be one of them.)
+Brain.goalArgsFit = function(g, refs)
+	for i in refs.indexes
+		if g.kind == "stack" then
+			candidates = g.args
+		else if i < g.args.len then
+			candidates = [g.args[i]]
+		else
+			return false
+		end if
+		found = false
+		for t in refs[i]
+			if containsRef(candidates, t) then found = true
+		end for
+		if not found then return false
+	end for
+	return true
+end function
+
+// Check an event's time constraints: [before e2], [after e2], [while e2].
+Brain.goalTimesFit = function(g, props, others)
+	for i in props.indexes
+		c = props[i]
+		other = others[i]
+		if c.pred == "before" then
+			ok = timeValue(g.finish) <= timeValue(other.start)
+		else if c.pred == "after" then
+			ok = timeValue(g.start) >= timeValue(other.finish)
+		else if c.pred == "while" then
+			ok = not refEquals(g, other) and timeValue(g.start) >= timeValue(other.start) and
+			  timeValue(g.finish) <= timeValue(other.finish)
+		else
+			self.fail "I don't know what """ + c.pred + """ means for an event."
+			return false
+		end if
+		if not ok then return false
+	end for
+	return true
+end function
+
+Brain.answerAboutEvent = function(q)
+	g = self.findGoal(q.target)
+	if g == null then return null
+	if g.kind != "stack" then self.focus.it = g.args[0]
+	it = self.focus.it
+	w = self.world
+	if q.q == "why" then
+		// The reason for a goal is the goal it was serving.
+		if g.parent == null then
+			self.focus.event = g
+			return "Because you asked me to."
+		end if
+		self.focus.event = g.parent
+		return "To " + speech.goalPhrase(w, g.parent, "to", it) + "."
+	else if q.q == "how" then
+		// How it was done: the steps it took.
+		self.focus.event = g
+		steps = []
+		for child in g.children
+			steps.push speech.goalPhrase(w, child, "ing", it)
+		end for
+		// The final move isn't a goal of its own, but it's worth mentioning.
+		if g.kind == "putOn" then steps.push speech.settingDownPhrase(w, g.args[1])
+		if g.kind == "getRidOf" then steps.push speech.settingDownPhrase(w, w.table)
+		if not steps then return "I just did it."
+		return "By " + steps.join(", then ") + "."
+	else
+		// When: during whatever the user had asked for.
+		root = g.root
+		if refEquals(root, g) then return "When you asked me to."
+		return "While I was " + speech.goalPhrase(w, root, "ing", it) + "."
+	end if
 end function
 
 //----------------------------------------------------------------------

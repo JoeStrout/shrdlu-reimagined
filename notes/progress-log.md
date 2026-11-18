@@ -64,3 +64,18 @@ Three new modules:
 Decided along the way: "in the box" includes things stacked on things in the box (open question 1, provisionally).
 
 `tests/testBrain.ms` (71 checks) covers the relations, the naming, and about 35 question-and-answer exchanges in the Winograd scene.
+
+### Later: the brain, part 2 (commands, the planner, why/how/when)
+
+- `planner.ms`: goal procedures `grasp`, `putOn`, `clearOff`, `getRidOf`, and `stack`, built from the three primitives. Every goal is recorded with its parent, children, and start and finish times, and the world stamps each primitive event with the goal it served. Free space is found by trying grid points nearest first, preferring spots with half a unit of elbow room. On the table the search starts near where the object already is. In the box it starts from the side nearest the object, so things pack toward the walls.
+- The brain now carries out commands (pick up, put on/in, put down, clear off, get rid of, stack up, find). For "a block" it picks the least trouble: the one in the hand, then clear ones, then the nearest. That choice holds for the rest of the sentence, so "find a block… and put it in the box" means one block. `[commanded PickUp]` matches things the user explicitly told it to act on.
+- "Why", "how", and "when" are answered from the goal record: why = the parent goal ("To get rid of it." … "Because you asked me to."), how = the children ("By picking it up, then setting it down on the table."), when = the user's command it was part of ("While I was stacking up…"). `e1 = event Do` means "that", the event just discussed, so "Why did you do that?" climbs the chain. Events can be constrained by `[before e2]`, `[after e2]`, `[while e2]`.
+
+Lessons and decisions:
+
+- **Never empty the box to put something into it.** The first version cleared out the blue pyramid to make room for the blue block. Now there's simply "no room" if it doesn't fit. Also moved the Winograd scene's blue pyramid off-center so the box can hold both.
+- **Clearing off the object being moved is a step of `putOn`, not of `grasp`.** That way the goal chain reads as Winograd's does ("Why did you clear off that cube?" "To put it on…").
+- **Names must count every object their noun fits.** "The red block" was ambiguous because the red cube is a block too. Objects are now named against everything the noun covers, which gives Winograd's own "the large red block".
+- **Don't record goals that need no work** (grasping what's already held). They gave wrong answers to "why".
+
+`tests/testPlanner.ms` (427 checks, most of them a check after every exchange that everything in the world is resting where it should) plays a Winograd-style conversation in ICL. `tests/testDisplay.ms` now also checks that the display plays a whole planned command through to the right final positions.

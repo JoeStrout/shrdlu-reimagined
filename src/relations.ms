@@ -29,7 +29,11 @@ containsRef = @world.containsRef
 
 // The rectangle a thing covers on the table, as seen from above.
 bounds = function(thing)
-	poly = thing.footprint
+	return polyBounds(thing.footprint)
+end function
+
+// The smallest rectangle around a polygon: {minX, maxX, minZ, maxZ}.
+polyBounds = function(poly)
 	b = {"minX": poly[0][0], "maxX": poly[0][0], "minZ": poly[0][1], "maxZ": poly[0][1]}
 	for p in poly
 		if p[0] < b.minX then b.minX = p[0]
@@ -43,8 +47,11 @@ end function
 // How far apart two things are, as seen from above: the larger of the gaps
 // along x and along z.  Zero (or less) means their footprints touch or overlap.
 gapBetween = function(a, b)
-	ba = bounds(a)
-	bb = bounds(b)
+	return boundsGap(bounds(a), bounds(b))
+end function
+
+// The same, for two rectangles from polyBounds.
+boundsGap = function(ba, bb)
 	gapX = ba.minX - bb.maxX
 	if bb.minX - ba.maxX > gapX then gapX = bb.minX - ba.maxX
 	gapZ = ba.minZ - bb.maxZ
