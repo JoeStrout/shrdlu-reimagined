@@ -26,10 +26,10 @@ capitalize = function(s)
 end function
 
 // "a", "a and b", "a, b and c"
-listPhrase = function(parts)
+listPhrase = function(parts, conjunction="and")
 	if parts.len == 0 then return ""
 	if parts.len == 1 then return parts[0]
-	return parts[:-1].join(", ") + " and " + parts[-1]
+	return parts[:-1].join(", ") + " " + conjunction + " " + parts[-1]
 end function
 
 // The size word to use for a thing, if any ("large", "small").

@@ -473,7 +473,7 @@ end function
 
 // After "Ask": the kind of question, its target, and (for yes-no) a claim.
 Reader.readAsk = function
-	if not self.atWord then return self.fail("expected a kind of question after Ask")
+	if not self.atWord then return self.fail("expected a kind of question after Ask, as in ""Ask color x1""")
 	q = self.next
 	if not self.atWord then return self.fail("expected what the question is about")
 	result = ask(q, self.next)
@@ -509,6 +509,10 @@ Reader.readLine = function
 		item = command(uncapitalize(first), self.readArgs)
 		if not self.atEnd then self.fail("unexpected " + self.describeNext)
 		return item
+	end if
+	// A lowercase word here was probably meant as Ask or a command.
+	if first != null and first != "[" and not isVar(first) then
+		return self.fail("don't know what to do with """ + first + """ (Ask and commands start with a capital letter: """ + capitalize(first) + """)")
 	end if
 	return self.fail("don't know what to do with """ + first + """")
 end function

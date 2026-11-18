@@ -334,7 +334,19 @@ end function
 
 // "What color is it?"
 Brain.answerAttribute = function(var, attr)
-	things = self.definite(var)
+	// "What color is the pyramid?" needs a pyramid we both know about.
+	// "What color is a pyramid?" lets the robot pick any one (the same way
+	// it picks one for "pick up a pyramid"), which then becomes "it".
+	d = self.lookup(var)
+	if d == null then return null
+	if ["a", "an", "any"].indexOf(d.det) != null then
+		things = self.candidates(var)
+		if things == null then return null
+		if not things then return self.fail("I don't see any " + speech.descriptionPhrase(d, true) + ".")
+		things = self.choose(var)
+	else
+		things = self.definite(var)
+	end if
 	if things == null then return null
 	self.noteFocus var, things
 	values = []

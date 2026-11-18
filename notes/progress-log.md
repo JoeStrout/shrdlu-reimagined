@@ -79,3 +79,16 @@ Lessons and decisions:
 - **Don't record goals that need no work** (grasping what's already held). They gave wrong answers to "why".
 
 `tests/testPlanner.ms` (427 checks, most of them a check after every exchange that everything in the world is resting where it should) plays a Winograd-style conversation in ICL. `tests/testDisplay.ms` now also checks that the display plays a whole planned command through to the right final positions.
+
+### Later: the ICL console
+
+The app now has a console at the bottom of the window where you type ICL to the brain and read its replies, so everything from parts 1 and 2 can be tried in the 3D world. A `;` stands for a line break. Lines starting with `/` are console commands (`/help`, `/clear`, `/scene name`).
+
+- `textInput.ms` is a one-line text field that knows nothing about ICL, so the English console can reuse it. It has the usual editing keys, a history (Up/Down), and paste.
+- `console.ms` keeps the transcript (word-wrapped and scrollable) and holds each reply until the robot has finished acting it out. Lines typed meanwhile wait their turn.
+- Typing always goes to the console, so the old single-key commands (P to pick up, 1 and 2 for scenes) are gone. Clicking still selects things, which makes them "this", and the mouse can still place a held object. Escape no longer quits; it clears the line.
+
+`tests/testConsole.ms` (42 checks) drives both with fake key presses (added to `tests/fakeRaylib.ms`).
+
+
+Follow-up after trying it: the placeholder's example, `x1 = a pyramid; Ask color x1`, got "I don't understand which pyramid you mean." "What color is a pyramid?" is about pyramids in general, so the robot now picks any one, the same way it does for "pick up a pyramid", answers about that one, and makes it "it". The `/help` examples are now a list that tells a short story in order, and `testConsole` checks that each one works. The ICL reader also explains its two most likely typos: a lowercase `ask` or command, and `Ask` with no kind of question after it.

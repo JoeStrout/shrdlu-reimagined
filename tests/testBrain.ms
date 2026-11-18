@@ -116,6 +116,12 @@ expect b, "x1 = the pyramid; Ask color x1", "I don't understand which pyramid yo
 expect b, "x1 = the pyramid [color purple]; Ask color x1", "I don't see any purple pyramids."
 expect b, "x1 = the pyramid [color blue]; Ask size x1", "Large."
 expect b, "x1 = the pyramid [littlest]; Ask color x1", "Green."
+// "What color is a pyramid?"  Any one will do (whichever is least trouble
+// to reach; here, the red one), and it becomes "it".
+expect b, "x1 = a pyramid; Ask color x1", "Red."
+expect b, "x1 = it; x2 = a cube; Ask yes-no x1 [on x2]", "Yes."
+expect b, "x1 = a pyramid; Ask shape x1", "Pyramid."
+expect b, "x1 = a pyramid [color purple]; Ask color x1", "I don't see any purple pyramids."
 
 // "Is there a big red block?"
 expect b, "x1 = a block [color red] [size big]; Ask exists x1", "Yes, the large red block."

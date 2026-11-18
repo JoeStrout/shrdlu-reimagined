@@ -179,13 +179,7 @@ Display.make = function(theWorld)
 	d.nextEvent = theWorld.history.len  // the next history event to animate
 	d.selected = null                   // the thing the user clicked on
 	d.preview = null                    // a placement to show (see drawPreview)
-	d.messages = []                     // recent lines of text to show
 	return d
-end function
-
-Display.say = function(text)
-	self.messages.push text
-	if self.messages.len > 6 then self.messages.pull
 end function
 
 // Is an animation still playing (or waiting to play)?
@@ -505,18 +499,11 @@ Display.draw = function
 	self.drawOverlay
 end function
 
-// Text drawn over the 3D view: what's selected, recent messages, and help.
+// Text drawn over the 3D view: the title, help, and what's selected.
+// (The robot's messages are in the console; see console.ms.)
 Display.drawOverlay = function
 	sw = rl.GetScreenWidth
-	sh = rl.GetScreenHeight
 	rl.DrawText "SHRDLU Reimagined", 16, 12, 24, colors.text
-
-	// Recent messages, bottom left.
-	y = sh - 24 * self.messages.len - 12
-	for m in self.messages
-		rl.DrawText m, 16, y, 20, colors.text
-		y += 24
-	end for
 
 	// About the selected thing, top right.
 	if self.selected then
@@ -548,9 +535,9 @@ Display.drawOverlay = function
 	end if
 
 	// Help, top left under the title.
-	help = ["Click: select   P: pick up   Click (holding): put down",
+	help = ["Click: select (""this"")   Click (holding): put down",
 	  "Shift-click: put down even if it won't balance",
-	  "Drag or right-drag: turn view   Wheel: zoom   1/2: scene"]
+	  "Drag or right-drag: turn view   Wheel: zoom   /help: more"]
 	y = 42
 	for line in help
 		rl.DrawText line, 16, y, 16, colors.dimText

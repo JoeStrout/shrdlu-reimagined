@@ -171,6 +171,10 @@ end function
 
 e = errorsFor("x1 = a block [color red")
 check e.len == 1 and e[0].indexOf("missing ]") != null, "missing ]: " + e
+e = errorsFor("ask color x1")
+check e.len == 1 and e[0].indexOf("capital letter") != null, "lowercase ask: " + e
+e = errorsFor("Ask [color x1]")
+check e.len == 1 and e[0].indexOf("as in") != null, "Ask needs a kind of question: " + e
 e = errorsFor("b1 = a block")
 check e.len == 1 and e[0].indexOf("variable") != null, "bad variable name: " + e
 e = errorsFor("PickUp x9")

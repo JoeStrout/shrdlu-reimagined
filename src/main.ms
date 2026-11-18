@@ -2,9 +2,10 @@
 //
 // SHRDLU Reimagined: main program.
 //
-// Milestone 1: the world and its display.  There's no language yet; you
-// operate the robot directly with the mouse and keyboard, to try out the
-// world model, the stability rules, and the animation.
+// The world and its display, with the ICL console (console.ms) for talking
+// to the robot's brain in its own internal language until the English
+// parser exists.  You can also operate the hand directly with the mouse,
+// to try out the world model, the stability rules, and the animation.
 //
 // Run from the repo root:   ./raylib-miniscript src/main.ms
 
@@ -12,6 +13,8 @@ import "geometry"
 import "world"
 import "scenes"
 import "display"
+import "brain"
+import "console"
 
 rl = raylib
 
@@ -26,44 +29,50 @@ if not rl.IsWindowReady then
 end if
 rl.SetWindowTitle "SHRDLU Reimagined"
 rl.SetTargetFPS 60
+rl.SetExitKey rl.KEY_NULL    // Escape clears the console's line instead
 display.setup
 
-// The current world, and the display showing it.
+// The current world, the display showing it, and the console for talking
+// to the robot.  (A new scene gets a new world and a new brain; the console
+// and its transcript carry on.)
 theWorld = null
 view = null
+con = console.Console.make
+
+consoleHeight = 260
 
 loadScene = function(name)
 	globals.theWorld = world.World.make
 	problems = theWorld.load(scenes.byName[name])
 	globals.view = display.Display.make(theWorld)
-	view.say "Scene: " + name
+	con.brain = brain.Brain.make(theWorld)
+	con.say "Scene: " + name
 	for p in problems
-		view.say "Problem loading scene: " + p
+		con.say "Problem loading scene: " + p
 	end for
 end function
 
+// "/scene name" in the console.
+sceneCommand = function(c, name)
+	if not scenes.byName.hasIndex(name) then
+		c.say "Scenes: " + scenes.names.join(", ")
+		return
+	end if
+	if view.isBusy then
+		c.say "(Wait until the robot has finished.)"
+		return
+	end if
+	loadScene name
+end function
+con.addCommand "scene", @sceneCommand, "/scene name: load a scene (" + scenes.names.join(", ") + ")"
+
+con.say "Welcome!  Type ICL below, or /help for examples."
 loadScene scenes.names[0]
 
 //----------------------------------------------------------------------
-// Commands (for now, issued directly with the mouse and keyboard).
-// Each one is a new "turn", just as each sentence will be later.
+// Operating the hand directly with the mouse.  Each action is a new "turn",
+// just as each sentence is.
 //----------------------------------------------------------------------
-
-// Pick up the selected thing.
-pickUpSelected = function
-	t = view.selected
-	if t == null then
-		view.say "Click on something first."
-		return
-	end if
-	if theWorld.hand.holding then
-		view.say "I'm already holding something."
-		return
-	end if
-	theWorld.beginTurn
-	problem = theWorld.pickUp(t)
-	if problem then view.say problem else view.say "OK."
-end function
 
 // Put down whatever is held, centered over the given point.  With force,
 // do it even if it won't balance (it will fall off, and come back to the hand).
@@ -72,7 +81,7 @@ putDownAt = function(point, force)
 	z = geometry.snap(point[2])
 	theWorld.beginTurn
 	problem = theWorld.putAt(x, z, force)
-	if problem then view.say problem else view.say "OK."
+	if problem then con.say problem, "robot" else con.say "OK.", "robot"
 end function
 
 // What a click means depends on whether the hand is holding something.
@@ -97,10 +106,17 @@ dragging = false    // whether that press has turned into a drag
 while not rl.WindowShouldClose
 	view.update rl.GetFrameTime
 
-	// Mouse: a left click selects or places; a drag (left or right) turns the view.
+	// The console: typing always goes there.  The brain needs to know what's
+	// selected, for "this".
+	con.brain.selected = view.selected
+	con.update view.isBusy
+
+	// Mouse: a left click selects or places; a drag (left or right) turns the
+	// view.  Over the console, the mouse is the console's.
 	mouse = rl.GetMousePosition
 	delta = rl.GetMouseDelta
-	if rl.IsMouseButtonPressed(rl.MOUSE_BUTTON_LEFT) then
+	overConsole = con.contains(mouse)
+	if rl.IsMouseButtonPressed(rl.MOUSE_BUTTON_LEFT) and not overConsole then
 		pressPos = mouse
 		dragging = false
 	end if
@@ -109,22 +125,16 @@ while not rl.WindowShouldClose
 		if dragging then view.rig.orbit delta.x, delta.y
 	end if
 	if rl.IsMouseButtonReleased(rl.MOUSE_BUTTON_LEFT) then
-		if not dragging and not view.isBusy then handleClick mouse
+		if pressPos and not dragging and not view.isBusy then handleClick mouse
 		pressPos = null
 	end if
-	if rl.IsMouseButtonDown(rl.MOUSE_BUTTON_RIGHT) then view.rig.orbit delta.x, delta.y
-	view.rig.zoom rl.GetMouseWheelMove
-
-	// Keys.
-	if not view.isBusy then
-		if rl.IsKeyPressed(rl.KEY_P) then pickUpSelected
-		if rl.IsKeyPressed(rl.KEY_ONE) then loadScene scenes.names[0]
-		if rl.IsKeyPressed(rl.KEY_TWO) then loadScene scenes.names[1]
-	end if
+	if rl.IsMouseButtonDown(rl.MOUSE_BUTTON_RIGHT) and not overConsole then view.rig.orbit delta.x, delta.y
+	wheel = rl.GetMouseWheelMove
+	if overConsole then con.scrollBy round(wheel * 3) else view.rig.zoom wheel
 
 	// While holding something, preview where it would land under the mouse.
 	view.preview = null
-	if theWorld.hand.holding and not view.isBusy and not dragging then
+	if theWorld.hand.holding and not view.isBusy and not dragging and not overConsole then
 		hit = view.pick(mouse)
 		if hit then
 			view.preview = theWorld.placementFor(theWorld.hand.holding,
@@ -134,6 +144,7 @@ while not rl.WindowShouldClose
 
 	rl.BeginDrawing
 	view.draw
+	con.draw 0, rl.GetScreenHeight - consoleHeight, rl.GetScreenWidth, consoleHeight
 	rl.EndDrawing
 	yield
 end while

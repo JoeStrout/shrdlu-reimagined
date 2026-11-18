@@ -20,7 +20,7 @@ Written in [MiniScript](https://miniscript.org) using [raylib-miniscript](https:
 ## Project layout
 
 ```
-src/                MiniScript source: main.ms, world model, display (later: parser, brain, planner)
+src/                MiniScript source: main.ms, world model, display, brain, planner, ICL console (later: parser)
 assets/             data files: shaders (later: grammar rules, fonts)
 tests/              test scripts (later: the original Winograd dialogue)
 notes/              design notes and progress log
@@ -35,6 +35,8 @@ ln -s ../raylib-miniscript/build/raylib-miniscript raylib-miniscript
 ./raylib-miniscript src/main.ms
 ```
 
+Until the English parser exists, you talk to the robot in ICL, its internal language, in the console at the bottom of the window. Use `;` between ICL lines, for example `x1 = a block [color red] [size big]; PickUp x1`. Type `/help` for more examples.
+
 The tests run without a window, using command-line MiniScript 2:
 
 ```
@@ -43,6 +45,7 @@ MS_IMPORT_PATH=src:tests miniscript tests/testDisplay.ms
 MS_IMPORT_PATH=src miniscript tests/testIcl.ms
 MS_IMPORT_PATH=src miniscript tests/testBrain.ms
 MS_IMPORT_PATH=src miniscript tests/testPlanner.ms
+MS_IMPORT_PATH=src:tests miniscript tests/testConsole.ms
 ```
 
 ## History

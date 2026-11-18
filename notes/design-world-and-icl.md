@@ -393,11 +393,13 @@ The reader is strict about structure but reports problems instead of stopping: e
 | `src/world.ms` | Thing, the table, the box, the hand, the support graph, stability rules, primitives |
 | `src/relations.ms` | the spatial and comparative relations of §1.7, including "as of time t" |
 | `src/speech.ms` | English output: names for objects ("the large green cube"), lists, numbers |
-| `src/brain.ms` | reference resolution, question answering, and (next) commands and the planner |
+| `src/brain.ms` | reference resolution, question answering, commands, and why/how/when |
 | `src/planner.ms` | Goal, and the goal procedures: grasp, putOn, clearOff, getRidOf, stack, plus finding free space |
 | (`src/world.ms`) | events and snapshots live with the world; querying the past is in `brain.ms` (a separate `history.ms` turned out not to be needed yet) |
 | `src/icl.ms` | ICL constructors, the pretty-printer, and the reader for the printed form |
 | `src/display.ms` | the raylib 3D scene: drawing, camera, picking, the hand animation |
 | `src/scenes.ms` | the starting scenes, as data |
+| `src/textInput.ms` | a one-line text field (editing keys, history, paste), reusable by any console |
+| `src/console.ms` | the ICL console: transcript, `/` commands, and handing ICL to the brain; to grow into the "under the hood" panel |
 
 The first milestone (done) was `world.ms` + `geometry.ms` + `display.ms` + the scenes: a visible, clickable world in which hard-coded `grasp`/`moveTo`/`ungrasp` sequences animate correctly. These modules are what the language side will build on.

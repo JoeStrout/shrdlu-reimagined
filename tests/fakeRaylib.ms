@@ -73,3 +73,51 @@ module.GetRayCollisionBox = function(ray, box)
 	if not inside then return {"hit": false, "distance": 0, "point": [0,0,0]}
 	return {"hit": true, "distance": p[1] - box.max[1], "point": {"x": p[0], "y": box.max[1], "z": p[2]}}
 end function
+
+//----------------------------------------------------------------------
+// Text and keyboard, for testing text input.  A test "types" by filling
+// typed (characters) and setting keysPressed / keysDown (key codes), then
+// calls the widget's update; endFrame clears what was pressed.
+//----------------------------------------------------------------------
+
+keyNames = ["LEFT_ALT", "RIGHT_ALT", "LEFT_CONTROL", "RIGHT_CONTROL", "LEFT_SUPER",
+  "RIGHT_SUPER", "LEFT_SHIFT", "RIGHT_SHIFT", "A", "E", "K", "U", "V", "LEFT", "RIGHT",
+  "UP", "DOWN", "HOME", "END", "BACKSPACE", "DELETE", "ESCAPE", "ENTER", "KP_ENTER",
+  "PAGE_UP", "PAGE_DOWN"]
+for i in keyNames.indexes
+	module["KEY_" + keyNames[i]] = 1000 + i
+end for
+
+module.typed = []           // characters waiting to be read
+module.keysPressed = []     // keys pressed this frame
+module.keysDown = []        // keys held down
+module.clipboard = ""
+module.time = 0
+
+module.type = function(s)
+	for c in s
+		module.typed.push c.code
+	end for
+end function
+module.press = function(keyName)
+	module.keysPressed.push module["KEY_" + keyName]
+end function
+module.endFrame = function
+	module.typed = []
+	module.keysPressed = []
+end function
+
+module.GetCharPressed = function
+	if not module.typed then return 0
+	return module.typed.pull
+end function
+module.IsKeyPressed = function(key); return module.keysPressed.indexOf(key) != null; end function
+module.IsKeyPressedRepeat = function(key); return false; end function
+module.IsKeyDown = function(key); return module.keysDown.indexOf(key) != null; end function
+module.GetClipboardText = function; return module.clipboard; end function
+module.GetTime = function; return module.time; end function
+// The default font is about half as wide as it is tall.
+module.MeasureText = function(text, size); return floor(text.len * size / 2); end function
+module.DrawRectangleLines = function(x, y, w, h, color); count "DrawRectangleLines"; end function
+module.BeginScissorMode = function(x, y, w, h); count "BeginScissorMode"; end function
+module.EndScissorMode = function; count "EndScissorMode"; end function
