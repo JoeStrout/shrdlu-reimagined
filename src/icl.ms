@@ -46,6 +46,8 @@
 //                  what x1 describes: one thing ("the blue pyramid"), or,
 //                  for a description like "any block [not [color red]]",
 //                  any such thing, now or later.  (See attitudes.)
+//                  Standing orders are declarations too (see orderVerbs):
+//                  Forbid e1, Allow e1, Keep x1 [claim], DontKeep x1 [claim].
 //
 // Constraints (the bracketed parts) are all the same shape: {pred, args}.
 // An arg is a variable name (like "x2"), a word ("red"), a number, or another
@@ -83,8 +85,23 @@ attitudes = {"own": "owned", "like": "liked", "love": "loved", "hate": "hated", 
 // thing starts at 0, neutral.
 feelingLevels = {"hate": -2, "dislike": -1, "like": 1, "love": 2}
 
+// Standing orders: what the robot must never do, and what it must keep so,
+// until it's told otherwise.
+//   Forbid e1            never do e1: "Never touch a green object" (e1 =
+//                        event Touch x1, x1 = a thing [color green])
+//   Allow e1             doing e1 is fine after all: "You may touch the
+//                        blue block"
+//   Keep x1 [claim]      whatever x1 means must stay so: "Keep all the cubes
+//                        in the box" (Keep x1 [in x2]).  "Never take any cube
+//                        out of the box" says the same.
+//   DontKeep x1 [claim]  x1 needn't stay so after all: "You may take the red
+//                        cube out of the box"
+// Keep and DontKeep are the only commands with a claim (a constraint), as a
+// yes/no question has.
+orderVerbs = ["forbid", "allow", "keep", "dontKeep"]
+
 // Statements that teach the robot something, rather than asking it to act.
-declareVerbs = ["define", "defineLike", "name"]
+declareVerbs = ["define", "defineLike", "name"] + orderVerbs
 for verb in attitudes.indexes
 	declareVerbs.push verb
 	declareVerbs.push "dont" + verb[0].upper + verb[1:]
@@ -220,11 +237,11 @@ group = function(join, members)
 	return {"kind": "group", "var": null, "join": join, "members": members}
 end function
 
-command = function(verb, args=null)
+command = function(verb, args=null, claim=null)
 	if args == null then args = []
 	kind = "command"
 	if declareVerbs.indexOf(verb) != null then kind = "declare"
-	return {"kind": kind, "var": null, "verb": verb, "args": args}
+	return {"kind": kind, "var": null, "verb": verb, "args": args, "claim": claim}
 end function
 
 // A question.  For an attribute question, q is the attribute ("color").
@@ -379,6 +396,7 @@ format = function(item)
 	else if item.kind == "command" or item.kind == "declare" then
 		s = item.verb.capitalized
 		if item.args then s += " " + formatArgs(item.args)
+		if item.hasIndex("claim") and item.claim then s += " " + formatConstraint(item.claim)
 		return s
 	else if item.kind == "ask" or item.kind == "claim" then
 		q = item.q
@@ -636,6 +654,8 @@ Reader.readLine = function
 	if first != null and isUpper(first[0]) then
 		self.next
 		item = command(uncapitalize(first), self.readArgs)
+		// (Only Keep and DontKeep have one: Keep x1 [in x2].)
+		if self.peek == "[" then item.claim = self.readConstraint
 		if not self.atEnd then self.fail("unexpected " + self.describeNext)
 		return item
 	end if

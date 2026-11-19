@@ -646,3 +646,15 @@ Gaps noted: calling the robot by an old or wrong name ("Robot, ..." after renami
 - **Lead words before any sentence**, not just commands: "Now what is in the box?", "So how many blocks are there?", "And now, what are you holding?", "Actually, is the box empty?". Commands and small talk take these words themselves, so the parser only tries skipping them (and a first "and") when the sentence doesn't parse otherwise (`parseTokens`).
 
 Noticed, not changed: when a definition's brain work adds descriptions to its program (the layers of an arrangement), the session log prints them after the Define line, which looks odd.
+
+### 2026-11-18: standing orders
+
+The user can now tell the robot what it must never do, or what it must keep so, and the planner works around those orders. They're descriptions of a forbidden event or of a situation that must stay true, kept until lifted.
+
+- **ICL:** `Forbid e1` and `Allow e1` for actions ("Never touch a green object", "You may touch it again"); `Keep x1 [claim]` and `DontKeep x1 [claim]` for situations ("Keep all the cubes in the box"). "Never take any cube out of the box" is the same Keep, because the frame says where the cube is now. "Never let a pyramid be on the table" is `Keep x1 [not [on x2]]`.
+- **Brain:** orders are a list, newest deciding, as ownership is. Definite noun phrases are pinned when the order is given. Forbidden events are matched against each new goal with the machinery that already answered "Did you touch...?", so touching covers picking up and putting things on. A Keep is checked at each candidate spot and at the end of the command, and doesn't count things that already broke it when the command began.
+- **Planner:** getting rid of something tries the box, then clear block tops, when the table is ruled out. Finding space skips spots that break a Keep.
+- **When an order gets in the way,** the world is put back as it was. If the trouble came from a thing chosen for "a block", the command is tried again without that thing. So after "Don't touch the blue block", "Pick up a block" takes a green cube instead. Otherwise the reply quotes the order back in the user's words, with persons swapped and "it" named: "I can't. You told me never to pick the green pyramid up."
+- Coverage: about 125 new lines (the "Standing orders" section of `tests/testCoverage.ms`). The two old standing-order gaps, and the 2008 "Don't ever touch the green cube" (which now asks which green cube), pass. "Always", "leave", "keep", "let" and "never" are words now, so two out-of-scope lines give different honest replies.
+
+Not done: questions about orders ("Are you allowed to touch the blue block?", "What did I tell you not to do?"), "you can ..." as permission (it's too easily a polite command), and orders that the robot should act on at once ("Keep the red cube clear" when something is on it now only forbids putting more there).

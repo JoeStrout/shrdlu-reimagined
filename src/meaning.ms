@@ -474,6 +474,8 @@ Meaning.sentence = function(s)
 		// "That cube's name is Bob." -> Name x1, Bob
 		name = parser.typedWord(parser.partsOfCat(s, "name")[0])
 		self.prog.add icl.command("name", [self.describe(s.parts[0]), name])
+	else if orderKinds.indexOf(s.kind) != null then
+		self.prog.add self.order(s)
 	else if s.kind == "chat" then
 		// "Thank you." -> Chat thanks
 		self.prog.add icl.command("chat", [s.parts[0].entry.reply])
@@ -486,6 +488,66 @@ Meaning.sentence = function(s)
 			self.prog.add fillName(line, name)
 		end for
 	end if
+end function
+
+// Standing orders (see Parser.orderSentence and icl.orderVerbs).
+//
+//   "Don't ever touch the blue block"  -> e1 = event Touch x1; Forbid e1
+//   "Leave the blue block alone"       -> the same: touching it is what's
+//                                         forbidden
+//   "You may touch the blue block"     -> e1 = event Touch x1; Allow e1
+//   "Keep all the cubes in the box"    -> Keep x1 [in x2]
+//   "Never let a pyramid be on the table" -> Keep x1 [not [on x2]]: it
+//                                         must stay not so
+//
+// Taking something out of (or off) somewhere is the opposite of keeping
+// it there, so a frame that says where the thing is now (see
+// Meaning.arguments) turns into a Keep:
+//   "Never take any cube out of the box"        -> Keep x1 [in x2]
+//   "You may take the red cube out of the box"  -> DontKeep x1 [in x2]
+//
+// The statement also gets `said`: how the robot will say the order back,
+// as "You told me " + said, if it ever gets in the way ("not to touch the
+// blue block", "never to touch a green object", "to keep all the cubes in
+// the box").  It's in the user's words, so "you" and "I" are still the
+// user's way around; the brain swaps them.
+orderKinds = ["forbid", "forbidLet", "avoid", "keep", "allow"]
+
+Meaning.order = function(s)
+	words = parser.wordsOf(parser.node("", s.said))
+	if s.never then negative = "never to " else negative = "not to "
+	if s.kind == "forbid" or s.kind == "allow" then
+		cmd = s.said[0]
+		args = self.arguments(cmd)
+		if cmd.frame.hasIndex("from") and args.len == 1 then
+			// (arguments put the place it's taken from on the thing, last.)
+			claim = self.prog.lookup(args[0]).props.pop
+			if s.kind == "forbid" then verb = "keep" else verb = "dontKeep"
+			statement = icl.command(verb, args, claim)
+		else
+			e = self.prog.add(icl.event(cmd.frame.icl, args))
+			if s.kind == "forbid" then verb = "forbid" else verb = "allow"
+			statement = icl.command(verb, [e])
+		end if
+		statement.said = negative + words
+	else if s.kind == "avoid" then
+		// "Leave the blue block alone" -> never touch it.
+		var = self.describe(parser.partsOfCat(parser.node("", s.said), "NP")[0])
+		statement = icl.command("forbid", [self.prog.add(icl.event("touch", [var]))])
+		statement.said = "to " + words
+	else
+		// keep, forbidLet: a noun phrase and a claim about it.
+		var = self.describe(parser.partsOfCat(parser.node("", s.said), "NP")[0])
+		claim = self.constraintFor(parser.partsOfCat(parser.node("", s.said), "REL")[0])
+		if s.kind == "forbidLet" then
+			statement = icl.command("keep", [var], icl.constraint("not", [claim]))
+			statement.said = negative + words
+		else
+			statement = icl.command("keep", [var], claim)
+			statement.said = "to " + words
+		end if
+	end if
+	return statement
 end function
 
 // A name as it should be written: as typed, unless it was typed all in

@@ -310,6 +310,25 @@ expect "Is the red cube mine?", "x1 = the cube [color red]; Ask yes-no x1 [owned
 expect "Which blocks do I own?", "x1 = which blocks [owned]; Ask which x1"
 expect "How many blocks which I own are in the box?", "x1 = how-many blocks [owned] [in x2]; x2 = the box; Ask count x1"
 
+// Standing orders.  Something the robot must never do is an event it
+// mustn't make happen; something it must keep so is a description and
+// what must stay true of it.  Taking things out of somewhere is keeping
+// them there.
+expect "Don't ever touch the blue block.", "x1 = the block [color blue]; e1 = event Touch x1; Forbid e1"
+expect "Never put a pyramid on the table.", "x1 = a pyramid; x2 = the table; e1 = event PutOn x1, x2; Forbid e1"
+expect "You must not pick up a red block.", "x1 = a block [color red]; e1 = event PickUp x1; Forbid e1"
+expect "Leave the blue block alone.", "x1 = the block [color blue]; e1 = event Touch x1; Forbid e1"
+expect "Stay away from the box.", "x1 = the box; e1 = event Touch x1; Forbid e1"
+expect "Keep all the cubes in the box.", "x1 = the cubes; x2 = the box; Keep x1 [in x2]"
+expect "Always keep the blue block clear.", "x1 = the block [color blue]; Keep x1 [clear]"
+expect "The blue pyramid must stay in the box.", "x1 = the pyramid [color blue]; x2 = the box; Keep x1 [in x2]"
+expect "Never take any cube out of the box.", "x1 = any cube; x2 = the box; Keep x1 [in x2]"
+expect "Don't take anything off the red cube.", "x1 = any thing; x2 = the cube [color red]; Keep x1 [on x2]"
+expect "Don't let anything be on the blue block.", "x1 = any thing; x2 = the block [color blue]; Keep x1 [not [on x2]]"
+expect "You may touch the blue block again.", "x1 = the block [color blue]; e1 = event Touch x1; Allow e1"
+expect "It's OK to put a pyramid on the table.", "x1 = a pyramid; x2 = the table; e1 = event PutOn x1, x2; Allow e1"
+expect "You may take the red cube out of the box.", "x1 = the cube [color red]; x2 = the box; DontKeep x1 [in x2]"
+
 // Noun phrases joined by "and" and "or", in commands and after relation
 // verbs.  "Both" means "the", and there must be two.
 expect "Will you please stack up both of the red blocks and either a green cube or a pyramid?",

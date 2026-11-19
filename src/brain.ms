@@ -65,6 +65,12 @@ for kv in icl.attitudes
 	Brain.attitudeFor[kv.value] = kv.key
 end for
 
+// Standing orders: what we must never do, or must keep so (see learnOrder).
+Brain.orders = null     // oldest first
+Brain.ordersBefore = null  // during a command: Keep order -> what already wasn't so
+Brain.vetoes = null     // during a command: the replies orders gave -> {goal, thing}
+Brain.excluded = null   // during a command: things not to pick for "a block" (see command)
+
 // Words the user has taught us: word -> {prog, var}, the description the
 // word means and the program it's in.  (See Brain.define.)
 Brain.definitions = null
@@ -106,6 +112,9 @@ Brain.make = function(theWorld)
 	  "itFrom": null, "built": null}
 	b.planner = planner.Planner.make(theWorld)
 	b.attitudes = {}
+	b.orders = []
+	b.vetoes = {}
+	b.excluded = []
 	b.definitions = {}
 	b.expanding = {}
 	return b
@@ -214,6 +223,7 @@ Brain.handle = function(statement)
 	if statement.kind == "declare" and statement.verb == "define" then return self.define(statement)
 	if statement.kind == "declare" and statement.verb == "defineLike" then return self.defineLike(statement)
 	if statement.kind == "declare" and attitudeOf(statement.verb) then return self.learnAttitude(statement)
+	if statement.kind == "declare" and icl.orderVerbs.indexOf(statement.verb) != null then return self.learnOrder(statement)
 	return "Sorry, I can't do that yet."
 end function
 
@@ -1203,16 +1213,30 @@ end function
 // Would the planner manage this goal?  We try it, then put the world back
 // just as it was, forgetting what we did.
 Brain.wouldWork = function(kind, args)
-	w = self.world
-	saved = {"snapshot": w.snapshot, "hand": w.hand.pos[:], "goals": w.goals.len,
-	  "history": w.history.len, "step": w.step}
+	saved = self.saveWorld
+	if self.orders then self.startOrders
 	problem = self.planner.achieve(kind, args)
+	self.restoreWorld saved
+	return problem == null
+end function
+
+// Note how the world is, so that we can put it back just so, forgetting
+// whatever we did in between (see restoreWorld).
+Brain.saveWorld = function
+	w = self.world
+	return {"snapshot": w.snapshot, "hand": w.hand.pos[:], "goals": w.goals.len,
+	  "history": w.history.len, "step": w.step, "event": self.focus.event}
+end function
+
+Brain.restoreWorld = function(saved)
+	w = self.world
 	w.restore saved.snapshot
 	w.hand.pos = saved.hand
 	w.goals = w.goals[:saved.goals]
 	w.history = w.history[:saved.history]
 	w.step = saved.step
-	return problem == null
+	w.currentGoal = null
+	self.focus.event = saved.event
 end function
 
 // Is this against the way things work?  For now we know one rule: nothing
@@ -1276,7 +1300,76 @@ commandGoals = {
   "stack": "stack", "stackUp": "stack",
   "find": "find"}
 
+// Carry out a command.  Standing orders (see learnOrder) are kept as we
+// go: the planner asks before each step.  If an order gets in the way, we
+// put the world back as it was, as if we'd only thought it through, and
+// either try again or say which order it was.
+//
+// Trying again is for a choice we made: after "Never touch a green
+// object", "Pick up a block" shouldn't stop at a green one, or at one with
+// a green one on it.  So whatever "a block" chose that was part of the
+// trouble is left out, and we choose again.
 Brain.command = function(cmd)
+	if not self.orders then return self.carryOut(cmd)
+	self.startOrders
+	saved = self.saveWorld
+	chosen = self.chosen + {}
+	self.excluded = []
+	firstProblem = null
+	for attempt in range(1, 10)
+		self.vetoes = {}
+		reply = self.carryOut(cmd)
+		vetoed = self.problem and self.vetoes.hasIndex(self.problem)
+		if not vetoed then
+			if self.problem == null or firstProblem == null then
+				self.excluded = []
+				return reply
+			end if
+			// Choosing again went wrong some other way ("I don't see another
+			// green block"): the order is still the reason.
+			break
+		end if
+		if firstProblem == null then firstProblem = self.problem
+		self.restoreWorld saved
+		drop = self.choicesToDrop(self.vetoes[self.problem])
+		if not drop then break
+		self.excluded += drop
+		self.chosen = chosen + {}
+		self.problem = null
+	end for
+	self.restoreWorld saved
+	self.excluded = []
+	self.problem = null
+	return self.fail(firstProblem)
+end function
+
+// After an order got in the way (`why` is {goal, thing}: what we were
+// doing, and what broke a Keep order), the things this command chose for
+// "a block" and the like that had to do with it: the ones that goal or
+// the goals above it were about.
+Brain.choicesToDrop = function(why)
+	involved = []
+	if why.thing then involved.push why.thing
+	g = why.goal
+	while g
+		involved += g.args
+		if g.near and g.near.hasIndex("other") then involved.push g.near.other
+		g = g.parent
+	end while
+	result = []
+	for var in self.chosen.indexes
+		d = self.lookup(var)
+		if d == null or d.kind != "description" or isDefinite(d) then continue
+		for t in self.chosen[var]
+			if containsRef(involved, t) and not containsRef(self.excluded, t) and not containsRef(result, t) then
+				result.push t
+			end if
+		end for
+	end for
+	return result
+end function
+
+Brain.carryOut = function(cmd)
 	if cmd.verb == "undo" then return self.undo
 	if cmd.verb == "putBack" then return self.putBackCommand(cmd)
 	// "Move the red pyramid" (with nowhere to move it) makes sense as a
@@ -1373,6 +1466,12 @@ Brain.command = function(cmd)
 		self.focus.event = root
 		if problem then return self.fail(problem)
 	end for
+	// Picking something up may have broken a standing order: "Pick up the
+	// red cube", when it's to be kept in the box.
+	if self.orders then
+		problem = self.keepProblem(true)
+		if problem then return self.fail(problem)
+	end if
 	if cmd.args then self.noteFocus cmd.args[0], groups[0]
 	// A stack we made is "it" (and "that") now: "Call that a steeple."
 	if kind == "stack" then self.noteStack groups[0]
@@ -1481,6 +1580,9 @@ Brain.choose = function(var)
 		if self.moving.indexOf(var) != null then things = movableOnes(things)
 		fitting = things
 		things = self.notChosenYet(fitting)
+		// (Not something that broke a standing order last time we tried:
+		// see command.)
+		if self.excluded then things = notIn(things, self.excluded)
 		want = things.len
 		if d.det == "a" or d.det == "any" or d.det == "which" then want = 1
 		// "Remove anything I don't own from the box": getting rid of
@@ -1771,7 +1873,10 @@ Brain.goalArg = function(g, verb, i)
 		if g.near and g.near.hasIndex("other") then return [g.near.other]
 		return []
 	end if
-	if g.kind == "getRidOf" and i == 1 then return [self.world.table]
+	if g.kind == "getRidOf" and i == 1 then
+		if g.place then return [g.place]
+		return [self.world.table]
+	end if
 	if verb == "touch" and g.kind == "putOn" then i += 1
 	return g.args[i:i+1]
 end function
@@ -2378,6 +2483,9 @@ Brain.checkStatement = function(statement, referents)
 		words = [statement.kind, statement.verb]
 		vars = statement.args
 	end if
+	isOrder = statement.kind == "declare" and icl.orderVerbs.indexOf(statement.verb) != null
+	// A standing order is about the things its noun phrases mean.
+	if isOrder then vars = self.orderArgs(statement)
 	for i in vars.indexes
 		var = vars[i]
 		if not icl.isVar(var) then
@@ -2407,6 +2515,8 @@ Brain.checkStatement = function(statement, referents)
 			things = self.buildParts(var)
 		else if statement.kind == "command" then
 			things = self.choose(var)
+		else if isOrder and item.kind == "group" then
+			things = self.candidates(var)
 		else
 			things = self.refer(var)
 			if things != null then things = things.things
@@ -2687,6 +2797,283 @@ Brain.fitsDescription = function(thing, entry)
 	end for
 	entry.remove "checking"
 	return fits
+end function
+
+//----------------------------------------------------------------------
+// Standing orders: what we must never do, or must keep so
+//
+// "Never touch a green object" forbids an event: e1 = event Touch x1,
+// Forbid e1.  Every goal the planner sets up is checked against it, the
+// same way "Did you touch a green object?" checks the goals we've done
+// (see eventGoals and goalArgsFit): picking up a green thing, or putting
+// something on one, would be touching it.
+//
+// "Keep all the cubes in the box" describes something that must stay so:
+// Keep x1 [in x2].  Whatever x1 means must go on meeting the claim.  This
+// is checked whenever something is about to be set down (the planner asks
+// placementProblem about each spot it considers), and at the end of each
+// command, for what's left in the hand.  Something that wasn't so already
+// when the command began (a cube that's on the table) doesn't count: the
+// order is about not *making* it untrue.  (Things in the hand along the
+// way don't count either, until the end: moving a cube from one side of
+// the box to the other is fine.)
+//
+// Allow e1 and DontKeep x1 [claim] lift an order.  As with what the user
+// owns, the newest order that fits decides, so "Never touch a block", then
+// "You may touch the red cube", lets us touch the red cube but no other
+// block; and "Don't touch the red cube" after that forbids it again.
+//
+// Each order is kept as {verb, prog, var, claim, pinned, said}: its
+// statement's verb, the program and variable that describe it, the claim
+// (for Keep and DontKeep), what each definite noun phrase in it ("the blue
+// block", "it") meant when the order was given, and what we'll say if it
+// gets in the way: "I can't.  You told me " + said + ".".
+//----------------------------------------------------------------------
+
+// "Don't ever touch the blue block" (Forbid e1), and so on.
+Brain.learnOrder = function(statement)
+	var = statement.args[0]
+	if self.lookup(var) == null then return null
+	if (statement.verb == "keep" or statement.verb == "dontKeep") and not statement.claim then
+		return self.fail("(" + statement.verb.capitalized + " needs a claim.)")
+	end if
+	order = {"verb": statement.verb, "prog": self.prog, "var": var, "claim": statement.claim, "pinned": {}}
+	// "The blue block" means the same thing from now on, and so does "it".
+	args = self.orderArgs(statement)
+	for v in self.varsWithin(args)
+		d = self.lookup(v)
+		if d.kind != "description" or not isDefinite(d) or self.variesPerThing(v) then continue
+		things = self.definite(v)
+		if things == null then return null
+		order.pinned[v] = things
+	end for
+	// What the order is about is "it" now: "Don't touch the box.  Why not?"
+	if args and order.pinned.hasIndex(args[0]) then self.noteFocus args[0], order.pinned[args[0]]
+	order.said = self.orderPhrase(statement, order)
+	self.orders.push order
+	self.planner.rules = self
+	return "OK."
+end function
+
+// The noun phrases an order is about: an event's arguments ("touch x1"), or
+// the description and whatever its claim mentions ("Keep x1 [in x2]").
+Brain.orderArgs = function(statement)
+	item = self.lookup(statement.args[0])
+	if item and item.kind == "event" then
+		result = []
+		for a in item.args
+			if icl.isVar(a) then result.push a
+		end for
+		return result
+	end if
+	result = statement.args[:1]
+	if statement.claim then result += icl.varsUsedIn(statement.claim)
+	return result
+end function
+
+// These variables, and every variable they mention, and so on.
+Brain.varsWithin = function(vars)
+	result = []
+	todo = vars[:]
+	while todo
+		v = todo.pop
+		if result.indexOf(v) != null then continue
+		result.push v
+		item = self.lookup(v)
+		if item then todo += icl.varsUsedIn(item)
+	end while
+	return result
+end function
+
+// What we'll say back, after "You told me": the user's words, with "you"
+// and "I" swapped, and "it" (or "that"...) replaced by what it meant: "not
+// to touch the blue block", "never to touch a green object", "to keep all
+// the cubes in the box".  (If we were given ICL, not English, we put it
+// together from the ICL.)
+Brain.orderPhrase = function(statement, order)
+	if statement.hasIndex("said") and statement.said then
+		words = statement.said.split(" ")
+		for kv in order.pinned
+			d = self.lookup(kv.key)
+			if not icl.pronouns.hasIndex(d.head) then continue
+			i = words.indexOf(d.head)
+			if i != null then words[i] = speech.specificNamesFor(self.world, kv.value)
+		end for
+		return speech.swapPersons(words.join(" "))
+	end if
+	item = self.lookup(statement.args[0])
+	if item.kind == "event" then
+		args = []
+		for a in item.args
+			if icl.isVar(a) then args.push self.orderArgPhrase(a, order)
+		end for
+		verb = item.verb
+		if orderVerbWords.hasIndex(verb) then verb = orderVerbWords[verb]
+		if (item.verb == "putOn" or item.verb == "putIn") and args.len == 2 then
+			return "not to put " + args[0] + " " + item.verb[3:].lower + " " + args[1]
+		end if
+		return "not to " + verb + " " + args.join(" ")
+	end if
+	tail = self.constraintPhrase(statement.claim, item.plural)
+	if tail == null and statement.claim.args.len == 0 then tail = statement.claim.pred     // [clear]
+	return "to keep " + self.orderArgPhrase(statement.args[0], order) + " " + tail
+end function
+
+// The words for one of an order's noun phrases (see orderPhrase).
+Brain.orderArgPhrase = function(var, order)
+	if order.pinned.hasIndex(var) then return speech.specificNamesFor(self.world, order.pinned[var])
+	phrase = self.argPhrase(var)
+	if phrase == null then phrase = "that"
+	return phrase
+end function
+
+// The words for an event's verb, when we have to put an order together.
+orderVerbWords = {"pickUp": "pick up", "grasp": "pick up", "putDown": "put down",
+  "getRidOf": "get rid of", "clearOff": "clear off", "cleanOff": "clear off",
+  "stack": "stack up", "stackUp": "stack up"}
+
+// Work inside an order's program, with its definite noun phrases meaning
+// what they meant when it was given.  Returns what to pass to leaveOrder.
+Brain.enterOrder = function(order)
+	saved = self.enter(order.prog)
+	saved.problem = self.problem
+	saved.mentioned = self.mentioned
+	saved.missing = self.missing
+	self.bound = order.pinned + {}
+	self.problem = null
+	self.mentioned = []
+	return saved
+end function
+
+Brain.leaveOrder = function(saved)
+	self.leave saved
+end function
+
+// Is this goal against a standing order?  (The planner asks; see
+// planner.ms.)  Returns null if not, or our reply if so.  The newest
+// Forbid or Allow that fits the goal decides.
+Brain.forbids = function(g)
+	for order in self.orders.reversed
+		if order.verb != "forbid" and order.verb != "allow" then continue
+		if not self.orderFits(order, g) then continue
+		if order.verb == "allow" then return null
+		return self.veto(order, g)
+	end for
+	return null
+end function
+
+// Does a Forbid or Allow order's event fit this goal?
+Brain.orderFits = function(order, g)
+	saved = self.enterOrder(order)
+	e = self.lookup(order.var)
+	fits = e != null and eventGoals.hasIndex(e.verb) and eventGoals[e.verb].indexOf(g.kind) != null
+	if fits then
+		refs = []
+		for a in e.args
+			if not icl.isVar(a) then continue
+			things = self.candidates(a)
+			if things == null then
+				fits = false
+				break
+			end if
+			refs.push things
+		end for
+		if fits then fits = self.goalArgsFit(g, e.verb, refs)
+	end if
+	self.leaveOrder saved
+	return fits
+end function
+
+// Would this thing break a Keep order, as things are now?  It does if it
+// fits the order's description, and the claim isn't so.  (For a DontKeep
+// order, the same test says whether the order lets it off.)
+Brain.breaksKeep = function(order, thing)
+	saved = self.enterOrder(order)
+	things = self.candidates(order.var)
+	broken = things != null and containsRef(things, thing)
+	if broken then broken = not self.test(thing, order.claim)
+	if self.problem then broken = false
+	self.leaveOrder saved
+	return broken
+end function
+
+// At the start of a command: for each Keep order, the things that already
+// break it.  Those don't count against us (see keepProblem).
+Brain.startOrders = function
+	self.vetoes = {}
+	self.ordersBefore = {}
+	for i in self.orders.indexes
+		if self.orders[i].verb != "keep" then continue
+		already = []
+		for t in self.world.things
+			if self.breaksKeep(self.orders[i], t) then already.push t
+		end for
+		self.ordersBefore[i] = already
+	end for
+end function
+
+// Is a Keep order broken now, by something that didn't break it when the
+// command began?  Returns our reply if so, or null.  Something in the hand
+// is still on its way somewhere, unless includeHeld is true (at the end of
+// a command).
+Brain.keepProblem = function(includeHeld=false)
+	if self.ordersBefore == null then self.startOrders
+	held = self.world.hand.holding
+	for i in self.orders.indexes
+		order = self.orders[i]
+		if order.verb != "keep" then continue
+		for t in self.world.things
+			if not includeHeld and refEquals(t, held) then continue
+			if self.ordersBefore.hasIndex(i) and containsRef(self.ordersBefore[i], t) then continue
+			if not self.breaksKeep(order, t) then continue
+			if self.letOff(i, t) then continue
+			return self.veto(order, null, t)
+		end for
+	end for
+	return null
+end function
+
+// Does a DontKeep order newer than order i let this thing off?
+Brain.letOff = function(i, thing)
+	for later in self.orders[i+1:]
+		if later.verb == "dontKeep" and self.breaksKeep(later, thing) then return true
+	end for
+	return false
+end function
+
+// Would setting this thing down at this placement (see
+// World.placementFor) break a Keep order?  We put it there for a moment
+// to see, and then put it back.
+Brain.placementProblem = function(thing, p)
+	hasKeep = false
+	for order in self.orders
+		if order.verb == "keep" then hasKeep = true
+	end for
+	if not hasKeep then return null
+	w = self.world
+	saved = {"pos": thing.pos, "supporters": thing.supporters, "holding": w.hand.holding}
+	thing.pos = [p.x, p.y, p.z]
+	thing.supporters = p.supporters
+	if refEquals(w.hand.holding, thing) then w.hand.holding = null
+	problem = self.keepProblem
+	thing.pos = saved.pos
+	thing.supporters = saved.supporters
+	w.hand.holding = saved.holding
+	return problem
+end function
+
+// The reply when an order gets in the way, noting what we were doing (and
+// what broke it) for command.
+Brain.veto = function(order, goal, thing=null)
+	reply = "I can't.  You told me " + order.said + "."
+	if goal == null then goal = self.world.currentGoal
+	self.vetoes[reply] = {"goal": goal, "thing": thing}
+	return reply
+end function
+
+// Is this reply from the planner one of ours, about an order?
+Brain.isOrderProblem = function(reply)
+	return self.vetoes.hasIndex(reply)
 end function
 
 //----------------------------------------------------------------------

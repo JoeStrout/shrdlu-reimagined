@@ -25,6 +25,18 @@
 //
 // A goal procedure returns null when it succeeds, or a reply explaining why
 // it couldn't.
+//
+// Standing orders ("Never touch a green object", "Keep all the cubes in the
+// box") are kept by the brain, which the planner asks (as `rules`) before
+// each step:
+//   rules.forbids(goal)               is this goal against an order?  Every
+//                                     goal is checked as it's set up.
+//   rules.placementProblem(thing, p)  would setting the thing down at this
+//                                     placement break an order?
+// Each returns null if all is well, or the reply saying which order is in
+// the way ("I can't.  You told me not to touch the blue block.").  Finding
+// space skips places that would break an order, and getting rid of
+// something tries other places than the table, if the table won't do.
 
 import "geometry"
 import "world"
@@ -50,6 +62,8 @@ Goal.finish = null    // [turn, step] when it finished
 Goal.verb = null      // for a goal the user asked for, the verb they used ("drop")
 Goal.near = null      // for a putOn: where on the target, as {rel, other} ("next to
                       // the blue block") or {at: [x, z]} (back where it was)
+Goal.place = null     // for a getRidOf: where it's going (the table, unless an
+                      // order rules that out)
 
 // The goal at the top of this one's chain: the thing the user asked for.
 Goal.root = function
@@ -66,6 +80,8 @@ end function
 
 Planner = {}
 Planner.world = null
+Planner.rules = null    // what keeps the standing orders (the brain), or null
+Planner.vetoed = null   // the last reply from rules about a place, while finding space
 
 Planner.make = function(theWorld)
 	p = new Planner
@@ -96,7 +112,13 @@ Planner.achieve = function(kind, args, near=null)
 	w.goals.push g
 
 	w.currentGoal = g
-	if kind == "grasp" then
+	// Is this against a standing order?  (A getRidOf is checked once we
+	// know where it's going.)
+	problem = null
+	if self.rules and kind != "getRidOf" then problem = self.rules.forbids(g)
+	if problem then
+		// (Nothing to do.)
+	else if kind == "grasp" then
 		problem = self.grasp(args[0])
 	else if kind == "putOn" then
 		problem = self.putOn(args[0], args[1], near)
@@ -182,9 +204,70 @@ Planner.clearOff = function(thing)
 end function
 
 // Put something out of the way: somewhere on the table near where it is.
+// If an order rules that out ("Never put a pyramid on the table"), then
+// somewhere else: in the box, or on top of some block.  (That's a putOn
+// of its own, so "Why did you put the green pyramid in the box?" gets "To
+// get rid of it.")
 Planner.getRidOf = function(thing)
-	if self.restsOnlyOn(thing, self.world.table) then return null
-	return self.moveOnto(thing, self.world.table)
+	w = self.world
+	g = w.currentGoal
+	g.place = w.table
+	if self.restsOnlyOn(thing, w.table) then return null
+	if not self.rules then return self.moveOnto(thing, w.table)
+	firstProblem = null
+	for place in self.placesFor(thing)
+		g.place = place
+		problem = self.rules.forbids(g)
+		if not problem then
+			if refEquals(place, w.table) then
+				problem = self.moveOnto(thing, place)
+			else
+				problem = self.achieve("putOn", [thing, place])
+			end if
+			if not problem then return null
+		end if
+		if firstProblem == null then firstProblem = problem
+		// Try somewhere else only if an order was what got in the way.
+		if not self.rules.isOrderProblem(problem) then break
+	end for
+	g.place = w.table
+	return firstProblem
+end function
+
+// Where something could go to be out of the way, best first: the table,
+// then the box (unless it's in there already), then the tops of the blocks
+// that have nothing on them, nearest first.  Not a block the goals above
+// this one are about, since those are being worked on.  (But the box will
+// do even if something else is going into it, unless we're emptying it.)
+Planner.placesFor = function(thing)
+	w = self.world
+	busy = [thing]
+	emptying = false
+	g = w.currentGoal
+	while g
+		busy += g.args
+		if g.kind == "clearOff" and g.args[0].shape == "box" then emptying = true
+		g = g.parent
+	end while
+	result = [w.table]
+	tops = []
+	for t in w.things
+		if t.shape == "table" or t.shape == "pyramid" then continue
+		if t.shape == "box" then
+			if not emptying and not containsRef(thing.supporters, t) then result.push t
+			continue
+		end if
+		if containsRef(busy, t) then continue
+		if not w.isClear(t) or refEquals(t, w.hand.holding) then continue
+		dx = t.x - thing.x
+		dz = t.z - thing.z
+		tops.push {"thing": t, "dist": dx*dx + dz*dz}
+	end for
+	tops.sort "dist"
+	for t in tops
+		result.push t.thing
+	end for
+	return result
 end function
 
 // Why a pyramid can't be under anything.  (The brain says it too, when
@@ -269,6 +352,8 @@ Planner.moveOnto = function(thing, target, near=null)
 end function
 
 Planner.noRoom = function(thing, target, near=null)
+	// If there was room, but an order ruled it out, say so.
+	if self.vetoed then return self.vetoed
 	// (The place comes first: "There's no room for the green cube which is
 	// on the red block in the box" would be hard to follow.)
 	place = speech.placePhrase(self.world, target)
@@ -312,8 +397,11 @@ Planner.findSpace = function(thing, target, near=null)
 	// Back to just where it was?
 	if near and near.hasIndex("at") then
 		p = w.placementFor(thing, near.at[0], near.at[1])
-		if p.ok and p.supporters.len == 1 and refEquals(p.supporters[0], target) then return near.at
-		return null
+		self.vetoed = null
+		if not p.ok or p.supporters.len != 1 or not refEquals(p.supporters[0], target) then return null
+		if self.rules then self.vetoed = self.rules.placementProblem(thing, p)
+		if self.vetoed then return null
+		return near.at
 	end if
 	if target.shape == "table" then
 		// Somewhere near where the thing is now, in steps of half a unit.
@@ -343,13 +431,23 @@ Planner.findSpace = function(thing, target, near=null)
 	end for
 	spots.sort "dist"
 	fallback = null
+	self.vetoed = null
 	for s in spots
 		p = w.placementFor(thing, s.x, s.z)
 		if not p.ok or p.supporters.len != 1 or not refEquals(p.supporters[0], target) then continue
 		if near and not self.wouldBeNear(thing, p, near) then continue
+		if self.rules then
+			problem = self.rules.placementProblem(thing, p)
+			if problem then
+				self.vetoed = problem
+				continue
+			end if
+		end if
+		self.vetoed = null
 		if self.elbowRoom(thing, s.x, s.z, target) >= 0.5 then return [s.x, s.z]
 		if fallback == null then fallback = [s.x, s.z]
 	end for
+	if fallback then self.vetoed = null
 	return fallback
 end function
 

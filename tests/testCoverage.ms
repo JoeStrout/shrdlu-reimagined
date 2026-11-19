@@ -1042,7 +1042,7 @@ say "What about the former?", "Sorry, I don't know the word ""former"".", out(""
 say "Now drop a cube on it.", "By ""it"", I assume you mean the red pyramid. I can't balance anything on a pyramid."
 say "Where did the cube go?", "I don't understand which cube you mean."
 say "Have you ever seen a blue pyramid?", "Yes, the blue one."
-say "Don't ever touch the green cube.", "I don't understand which green cube you mean.", gap("standing orders (and our scene has two green cubes)")
+say "Don't ever touch the green cube.", "I don't understand which green cube you mean."     // (our scene has two)
 say "Where would you put the red block if you had to move the green one?", "Sorry, I don't know the word ""if"".", out("hypotheticals")
 say "Move the green block.", "Where should I move it to?  You can say, for example, ""Move it onto the box."""
 say "Did you put the red block where you said you would?", "Sorry, I don't know the word ""said"".", out("what the robot said it would do")
@@ -1070,19 +1070,15 @@ say "Does Bert have any neighbors?", "Sorry, I don't know the word ""bert"".", o
 say "Does Bert like any of his neighbors?", "Sorry, I don't know the word ""bert"".", out("liking")
 say "Bert likes only yellow cubes, or cubes with some yellow in them.", "Sorry, I don't know the word ""bert"".", out("liking")
 say "Move most cubes to the back, leaving just one or two little cubes at the front.", "Sorry, I don't know the word ""most"".", out("""most"" and ""leaving""")
-say "How many did you leave?", "Sorry, I don't know the word ""leave"".", out("""leaving""")
+say "How many did you leave?", "I didn't understand the part starting with ""leave"".", out("""leaving""")
 say "How would you begin to dismantle a steeple?", "Sorry, I don't know the word ""dismantle"".", out("dismantling")
 say "How did you work that out?", "Sorry, I don't know the word ""work"".", out("the robot's reasoning")
 say "When dismantling a steeple, when would you move the bottom block?", "Sorry, I don't know the word ""dismantling"".", out("dismantling")
-say "Is there always room to put down a block you are holding?", "Sorry, I don't know the word ""always"".", out("""always""")
+say "Is there always room to put down a block you are holding?", "Sorry, I don't know the word ""room"".", out("""always"" and free room")
 say "What is the blue pyramid supported by?", "The box."
 say "Are any red blocks resting on the table?", "Yes, two of them: the red cube and the large red one."
 say "If there is too much on that block to move it, clear it off.", "Sorry, I don't know the word ""if"".", out("conditional commands")
 say "Thank you.", "You're welcome!"
-
-conversation "standing orders"
-say "Don't ever touch the blue block.", "OK.", gap("standing orders")
-say "Put the red cube on the blue block.", "I can't.  You told me not to touch the blue block.", gap("standing orders")
 
 conversation "colored"
 say "Which blocks are colored green?", "The large green cube which supports the red pyramid and the large green cube which is on the large red block."
@@ -1168,6 +1164,185 @@ say "OK, where is the red cube?", "On the table."
 say "Pick up the red cube.", "OK."
 say "And now, what are you holding?", "The red cube."
 say "Actually, is the box empty?", "No."
+
+//======================================================================
+// Standing orders: what the robot must never do, or must keep so
+//
+// An order lasts until it's lifted.  It forbids an action ("Never touch a
+// green object"), or says something must stay so ("Keep all the cubes in
+// the box", which is the same as "Never take any cube out of the box").
+// The robot avoids breaking one when it chooses things and makes plans,
+// and if it can't, it says which order was in the way, and leaves the
+// world as it was.
+//======================================================================
+
+conversation "standing orders"
+say "Don't ever touch the blue block.", "OK."
+say "Put the red cube on the blue block.", "I can't.  You told me not to touch the blue block."
+// (Nothing was moved: the green pyramid is still on the red cube.)
+say "Is the green pyramid on the red cube?", "Yes."
+say "Pick up the blue block.", "I can't.  You told me not to touch the blue block."
+say "Stack up the blue block and the large red block.", "I can't.  You told me not to touch the blue block."
+say "What is on the large red block?", "A large green cube."
+// Other things are fine.
+say "Put the red cube in the box.", "OK."
+// Lifting the order.
+say "You may touch the blue block again.", "OK."
+say "Put the green pyramid on the blue block.", "OK."
+
+// An order about a kind of thing.  The robot picks things that don't
+// break it, and won't clear something off if that means touching one.
+conversation "never touch a green object"
+say "Never touch a green object.", "OK."
+say "Pick up a green block.", "I can't.  You told me never to touch a green object."
+say "Put the red cube in the box.", "I can't.  You told me never to touch a green object."
+say "Is the green pyramid on the red cube?", "Yes."
+say "Put the blue block on a green cube.", "I can't.  You told me never to touch a green object."
+// (Both red blocks have something green on them.)
+say "Pick up a red block.", "I can't.  You told me never to touch a green object."
+say "Can you pick up the red cube?", "I can't.  You told me never to touch a green object."
+say "Pick up a block.", "OK."
+say "What are you holding?", "The blue block."
+say "Put the blue pyramid on the table.", "OK."
+
+// Choosing around an order.  (With no orders, "a block" here would be the
+// blue block, and "a red block" the large red one.)
+conversation "choosing around an order"
+say "Don't touch the blue block.", "OK."
+say "Pick up a block.", "OK."
+say "What are you holding?", "A large green cube."
+
+// Somewhere else to put things out of the way.
+conversation "never put a pyramid on the table"
+say "Never put a pyramid on the table.", "OK."
+say "Put the red cube in the box.", "OK."
+say "Is the green pyramid on the table?", "No."
+say "Where is the green pyramid?", "In the box."
+say "Why did you put the green pyramid in the box?", "To get rid of it."
+say "Put the green pyramid on the table.", "I can't.  You told me never to put a pyramid on the table."
+say "Pick up the green pyramid.", "OK."
+say "Put the green pyramid down.", "I can't.  You told me never to put a pyramid on the table."
+say "Put the blue pyramid on the blue block.", "OK."
+
+// Something that must stay so.  Things that weren't so already (the
+// large green cubes aren't in the box) don't count.
+conversation "emptying the box"
+say "Never put a pyramid on the table.", "OK."
+say "Empty the box.", "OK."
+say "Where is the blue pyramid?", "On the blue block."
+say "Keep the blue pyramid on the blue block.", "OK."
+say "Put the blue pyramid in the box.", "I can't.  You told me to keep the blue pyramid on the blue block."
+
+conversation "keep the cubes in the box"
+say "Put the red cube in the box.", "OK."
+say "Keep all the cubes in the box.", "OK."
+say "Put the red cube on the table.", "I can't.  You told me to keep all the cubes in the box."
+say "Pick up the red cube.", "I can't.  You told me to keep all the cubes in the box."
+say "Is the red cube in the box?", "Yes."
+say "Is your hand empty?", "Yes."
+say "Put the red cube next to the blue pyramid.", "OK."
+say "Is the red cube in the box?", "Yes."
+say "Put a large green cube on the blue block.", "OK."
+
+conversation "never take a cube out of the box"
+say "Put the red cube in the box.", "OK."
+say "Never take any cube out of the box.", "OK."
+say "Put the red cube on the blue block.", "I can't.  You told me never to take any cube out of the box."
+say "Take the red cube out of the box.", "I can't.  You told me never to take any cube out of the box."
+say "You may take the red cube out of the box.", "OK."
+say "Put the red cube on the blue block.", "OK."
+
+conversation "keep it clear"
+say "Keep the blue block clear.", "OK."
+say "Put the red cube on the blue block.", "I can't.  You told me to keep the blue block clear."
+say "Put the red cube on a block.", "OK."
+say "Is anything on the blue block?", "No."
+say "Don't let anything be on the large red block.", "OK."
+say "Put the red cube on the large red block.", "I can't.  You told me not to let anything be on the large red block."
+say "Put the green pyramid on the large red block.", "I can't.  You told me not to let anything be on the large red block."
+
+conversation "don't put anything on it"
+say "Don't put anything on the blue block.", "OK."
+say "Put the red cube on the blue block.", "I can't.  You told me not to put anything on the blue block."
+say "Put the red cube in the box.", "OK."
+say "Never pick up a pyramid.", "OK."
+say "Pick up the blue pyramid.", "I can't.  You told me never to pick up a pyramid."
+say "Put the blue block on the large red block.", "OK."
+
+// The order is said back as the robot would say it, with "it" named.
+conversation "said back"
+say "I own the blue block.", "I understand."
+say "Don't touch anything I own.", "OK."
+say "Pick up the blue block.", "I can't.  You told me not to touch anything you own."
+say "What is on the red cube?", "The green pyramid."
+say "Never pick it up.", "OK."
+say "Clear off the red cube.", "I can't.  You told me never to pick the green pyramid up."
+
+// The newest order about something is the one that counts.
+conversation "the newest order counts"
+say "Never touch a block.", "OK."
+say "Pick up the red pyramid.", "OK."
+say "You may touch the red cube.", "OK."
+say "Put the red cube in the box.", "OK."
+say "Pick up the blue block.", "I can't.  You told me never to touch a block."
+say "Don't touch the red cube.", "OK."
+say "Put the red cube on the table.", "I can't.  You told me not to touch the red cube."
+
+conversation "ways of forbidding"
+say "Please don't touch the blue block.", "OK."
+say "Do not touch the blue block.", "OK."
+say "Don't touch the blue block ever again.", "OK."
+say "Never touch the blue block again.", "OK."
+say "Never ever touch the blue block.", "OK."
+say "From now on, don't touch the blue block.", "OK."
+say "From now on, never touch the blue block.", "OK."
+say "You must not touch the blue block.", "OK."
+say "You mustn't touch the blue block.", "OK."
+say "You must never touch the blue block.", "OK."
+say "You should never touch the blue block.", "OK."
+say "You shouldn't touch the blue block.", "OK."
+say "You may not touch the blue block.", "OK."
+say "You are not allowed to touch the blue block.", "OK."
+say "You aren't allowed to touch the blue block.", "OK."
+say "You are not to touch the blue block.", "OK."
+say "Leave the blue block alone.", "OK."
+say "Stay away from the blue block.", "OK."
+say "Keep away from the blue block.", "OK."
+say "Keep your hand off the blue block.", "OK."
+say "Don't touch the blue block or the red cube.", "OK."
+say "Don't move any blocks.", "OK."
+say "Never stack anything on the blue block.", "OK."
+say "Don't take anything off the large red block.", "OK."
+say "Don't remove anything from the box.", "OK."
+say "Never let a pyramid be on the table.", "OK."
+say "Don't allow anything to be on the blue block.", "OK."
+// (The newest order that fits is the one we say.)
+say "Pick up the blue block.", "I can't.  You told me not to move any blocks."
+
+conversation "ways of keeping"
+say "Keep the blue pyramid in the box.", "OK."
+say "Always keep the blue pyramid in the box.", "OK."
+say "Keep the blue pyramid in the box from now on.", "OK."
+say "Leave the blue pyramid in the box.", "OK."
+say "The blue pyramid must stay in the box.", "OK."
+say "The blue pyramid should always stay in the box.", "OK."
+say "The blue pyramid must remain in the box.", "OK."
+say "The blue pyramid must always be in the box.", "OK."
+say "Keep the red cube on the table.", "OK."
+say "Keep the blue block clear and on the table.", "OK."
+say "Keep the blue block and the red cube on the table.", "OK."
+say "Put the blue pyramid on the table.", "I can't.  You told me to keep the blue pyramid in the box."
+
+conversation "ways of allowing"
+say "Don't touch the blue block.", "OK."
+say "You may touch the blue block.", "OK."
+say "Don't touch the blue block.", "OK."
+say "It's OK to touch the blue block now.", "OK."
+say "Don't touch the blue block.", "OK."
+say "You are allowed to touch the blue block again.", "OK."
+say "Don't touch the blue block.", "OK."
+say "Feel free to touch the blue block.", "OK."
+say "Pick up the blue block.", "OK."
 
 //======================================================================
 // Out of scope for now

@@ -1153,7 +1153,165 @@ Parser.sentence = function(pos)
 	  self.attributeQuestion(pos) + self.yesNoQuestion(pos) + self.canQuestion(pos) +
 	  self.didQuestion(pos) + self.eventQuestion(pos) + self.whatDoneQuestion(pos) + self.chat(pos) + self.tellMe(pos) +
 	  self.showMe(pos) + self.methodQuestion(pos) + self.nameStatement(pos) + self.exampleStatement(pos) +
-	  self.whatAbout(pos) + self.calledByName(pos)
+	  self.whatAbout(pos) + self.calledByName(pos) + self.orderSentence(pos)
+end function
+
+//----------------------------------------------------------------------
+// Standing orders: what the robot must never do, or must keep so, until
+// it's told otherwise.  (See icl.orderVerbs.)
+//
+//   forbid    a command, said as something never to do: "Don't ever touch
+//             the blue block", "You must not pick up a pyramid"
+//   forbidLet something never to let be so: "Never let a pyramid be on
+//             the table"
+//   avoid     things never to touch: "Leave the blue block alone", "Stay
+//             away from the box"
+//   keep      something to keep so: "Always keep the cubes in the box",
+//             "The blue pyramid must stay in the box"
+//   allow     a command that's fine after all: "You may touch the blue
+//             block again"
+//
+// Each sentence node notes the words the robot will say back if the order
+// gets in the way ("You told me not to touch the blue block"): `said` is
+// the parts to say, and `never` whether the user said "never".
+//----------------------------------------------------------------------
+
+orderNode = function(kind, parts, said, never=false)
+	s = sentenceNode(kind, parts)
+	s.said = said
+	s.never = never
+	return s
+end function
+
+Parser.orderSentence = function(pos)
+	results = []
+	for p in self.politeness(pos)
+		for n in self.prohibition(p.next)
+			never = partsOfCat(node("", n.tree), "never").len > 0
+			for c in self.command(n.next)
+				for e in self.optionalWord(c.next, "ever")     // "Don't touch it ever again"
+					results.push result(orderNode("forbid", p.tree + n.tree + [c.tree] + e.tree, [c.tree], never), e.next)
+				end for
+			end for
+			// "let a pyramid be on the table", "allow anything to be on it"
+			for l in self.word(n.next, "let")
+				for np in self.nounPhrases(l.next)
+					for t in self.optionalWord(np.next, "to")
+						for b in self.word(t.next, "be")
+							for pr in self.predicates(b.next)
+								claim = node("REL", pr.tree)
+								said = [l.tree, np.tree] + t.tree + [b.tree, claim]
+								results.push result(orderNode("forbidLet", p.tree + n.tree + said, said, never), pr.next)
+							end for
+						end for
+					end for
+				end for
+			end for
+		end for
+		// "Leave the blue block alone"
+		for k in self.word(p.next, "keep")
+			if k.tree.word != "leave" then continue
+			for np in self.nounPhrases(k.next)
+				for a in self.word(np.next, "alone")
+					said = [k.tree, np.tree, a.tree]
+					results.push result(orderNode("avoid", p.tree + said, said), a.next)
+				end for
+			end for
+		end for
+		// "Stay away from the box", "Keep your hand off the blue block"
+		for a in self.word(p.next, "avoid")
+			for np in self.nounPhrases(a.next)
+				said = [a.tree, np.tree]
+				results.push result(orderNode("avoid", p.tree + said, said), np.next)
+			end for
+		end for
+		// "Always keep the cubes in the box", "Leave the blue pyramid in the box"
+		for al in self.optionalWord(p.next, "always")
+			for k in self.word(al.next, "keep")
+				for np in self.nounPhrases(k.next)
+					for pr in self.predicates(np.next)
+						claim = node("REL", pr.tree)
+						said = [k.tree, np.tree, claim]
+						for f in self.optionalWord(pr.next, "fromNowOn")
+							results.push result(orderNode("keep", p.tree + al.tree + said + f.tree, said), f.next)
+						end for
+					end for
+				end for
+			end for
+		end for
+		// "You may touch the blue block again", "It's OK to put a pyramid on the table"
+		for m in self.permission(p.next)
+			for c in self.command(m.next)
+				results.push result(orderNode("allow", p.tree + m.tree + [c.tree], [c.tree]), c.next)
+			end for
+		end for
+	end for
+	// "The blue pyramid must stay in the box", "... should always be in the box"
+	for np in self.nounPhrases(pos)
+		for m in self.word(np.next, "modal")
+			if m.tree.word != "must" and m.tree.word != "should" then continue
+			for al in self.optionalWord(m.next, "always")
+				for s in self.word(al.next, "stay") + self.word(al.next, "be")
+					for pr in self.predicates(s.next)
+						claim = node("REL", pr.tree)
+						keep = leaf({"text": "keep"}, {"cat": "keep"})
+						results.push result(orderNode("keep", [np.tree, m.tree] + al.tree + [s.tree, claim], [keep, np.tree, claim]), pr.next)
+					end for
+				end for
+			end for
+		end for
+	end for
+	return results
+end function
+
+// What makes a command something never to do: "don't", "do not ever",
+// "never", "never ever", "never again", "you must not", "you mustn't
+// ever", "you should never", "you are not allowed to"...  A list of parts.
+Parser.prohibition = function(pos)
+	results = []
+	for d in self.word(pos, "do")
+		if d.tree.word != "do" then continue
+		for n in self.word(d.next, "not")
+			for e in self.optionalWord(n.next, "ever")
+				results.push result([d.tree, n.tree] + e.tree, e.next)
+			end for
+		end for
+	end for
+	for n in self.word(pos, "never")
+		for e in self.optionalWord(n.next, "ever") + self.optionalWord(n.next, "again")
+			results.push result([n.tree] + e.tree, e.next)
+		end for
+	end for
+	for y in self.word(pos, "you")
+		for m in self.word(y.next, "modal")
+			if ["must", "should", "may", "can"].indexOf(m.tree.word) == null then continue
+			for n in self.word(m.next, "not") + self.word(m.next, "never")
+				for e in self.optionalWord(n.next, "ever")
+					results.push result([y.tree, m.tree, n.tree] + e.tree, e.next)
+				end for
+			end for
+		end for
+	end for
+	results += self.word(pos, "forbidding")
+	for i in results.indexes
+		if not (results[i].tree isa list) then results[i] = result([results[i].tree], results[i].next)
+	end for
+	return results
+end function
+
+// What lifts an order: "you may", "you are allowed to", "it is OK to",
+// "feel free to".  A list of parts.
+Parser.permission = function(pos)
+	results = []
+	for y in self.word(pos, "you")
+		for m in self.word(y.next, "modal")
+			if m.tree.word == "may" then results.push result([y.tree, m.tree], m.next)
+		end for
+	end for
+	for w in self.word(pos, "permitting")
+		results.push result([w.tree], w.next)
+	end for
+	return results
 end function
 
 // "Tell me what you are holding."  "Can you tell me where the red cube is?"

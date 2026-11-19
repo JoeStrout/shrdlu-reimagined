@@ -459,5 +459,35 @@ check said.join("; ") == "a large green cube; the red cube; that cube; the red c
 teller.it = w.thing("b1")
 check teller.name(w.thing("b1")) == "it", "teller: it"
 
+// Standing orders, as ICL.  (With no English to echo, the robot puts the
+// order into words itself.)  An order that gets in the way leaves the
+// world as it was.
+w = newWorld
+b = brain.Brain.make(w)
+expect b, "x1 = the block [color blue]; e1 = event Touch x1; Forbid e1", "OK."
+before = w.snapshot
+expect b, "x1 = the cube [color red]; x2 = the block [color blue]; PutOn x1, x2", "I can't.  You told me not to touch the blue block."
+expect b, "x1 = the block [color blue]; x2 = the box; PutIn x1, x2", "I can't.  You told me not to touch the blue block."
+check w.snapshot == before and w.hand.holding == null, "a forbidden command leaves the world as it was"
+expect b, "x1 = the block [color blue]; e1 = event Touch x1; Allow e1", "OK."
+expect b, "x1 = the cube [color red]; x2 = the block [color blue]; PutOn x1, x2", "OK."
+check w.thing("b1").supporters[0].id == "b5", "allowed again"
+
+w = newWorld
+b = brain.Brain.make(w)
+expect b, "x1 = the pyramid [color blue]; x2 = the box; Keep x1 [in x2]", "OK."
+expect b, "x1 = the pyramid [color blue]; PickUp x1", "I can't.  You told me to keep the blue pyramid in the box."
+expect b, "x1 = the pyramid [color blue]; x2 = the box; DontKeep x1 [in x2]", "OK."
+expect b, "x1 = the pyramid [color blue]; PickUp x1", "OK."
+
+// Getting rid of something, when the table won't do: the box.
+w = newWorld
+b = brain.Brain.make(w)
+expect b, "x1 = a pyramid; x2 = the table; e1 = event PutOn x1, x2; Forbid e1", "OK."
+expect b, "x1 = the cube [color red]; ClearOff x1", "OK."
+p1 = w.thing("p1")
+check relations.binary["in"](w, p1, w.thing("box")), "the green pyramid went in the box: " + p1.supporters[0].id
+expect b, "x1 = the pyramid [color green]; PutDown x1", "I can't.  You told me not to put a pyramid on the table."
+
 print checks + " checks, " + failures + " failures."
 exit (failures > 0)

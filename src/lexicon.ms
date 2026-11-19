@@ -460,6 +460,43 @@ end for
 // remembers since the conversation began.)
 simple "ever", "ever"
 
+// Standing orders (see Parser.orderSentence).  What turns a command into
+// something never to do: "Don't ever touch it", "Never put a pyramid on
+// the table", "You must not pick up the box", "You aren't allowed to...".
+simple "never", "never"
+for w in ["you are not allowed to", "you are not to", "you are never to"]
+	simple w, "forbidding"
+end for
+// Ways of saying "touch" that are already about not touching: "Stay away
+// from the box", "Keep your hand off the blue block".
+for w in ["stay away from", "keep away from", "keep your hand off", "keep your hands off",
+  "keep your hand away from", "hands off"]
+	simple w, "avoid"
+end for
+// "Leave the blue block alone."
+simple "alone", "alone"
+// What must stay so: "Always keep the cubes in the box", "Leave the blue
+// pyramid in the box", "The blue pyramid must stay in the box".
+simple "always", "always"
+for w in ["keep", "leave"]
+	simple w, "keep"
+end for
+for w in ["stay", "remain"]
+	simple w, "stay"
+end for
+// "Never let a pyramid be on the table", "Don't allow anything to be on it".
+for w in ["let", "allow"]
+	simple w, "let"
+end for
+// Lifting an order: "You may touch the blue block", "It's OK to...".  ("You
+// may" is "you" and a modal; see Parser.permission.)
+for w in ["it is ok to", "it is okay to", "it is all right to", "it is alright to", "it is fine to",
+  "you are allowed to", "feel free to"]
+	simple w, "permitting"
+end for
+// The end of an order: "Keep it in the box from now on."
+simple "from now on", "fromNowOn"
+
 // Social niceties.  Each is a whole sentence, and the robot answers with
 // the reply named here (see Brain.chat).
 chat = function(words, reply)
@@ -600,7 +637,7 @@ for w in ["since we began", "since we started", "since the beginning"]
 	simple w, "sinceStart"
 end for
 simple "please", "polite"
-for w in ["will", "would", "can", "could"]
+for w in ["will", "would", "can", "could", "must", "should", "may"]
 	simple w, "modal"
 end for
 verb "tell", {"tell": true}
@@ -622,7 +659,7 @@ contractions = {
   "where's": "where is", "i'd": "i would", "its": "it 's", "haven't": "have not",
   "hasn't": "has not", "hadn't": "had not", "you've": "you have",
   "i'll": "i will", "you'll": "you will", "we'll": "we will", "let's": "let us",
-  "how's": "how is", "who's": "who is"}
+  "how's": "how is", "who's": "who is", "mustn't": "must not", "shouldn't": "should not"}
 
 // Irregular verb forms: form -> [stem, form].
 irregular = {
