@@ -139,11 +139,45 @@ joinPhrases = function(words)
 	return result
 end function
 
+// "On the left" is joined into one word, a side ("the block on the left").
+// But in "put it on the left red block", "left" describes the block, and
+// the words are "on", "the", "left red block".  So a side followed by an
+// adjective or a noun ("red", "block", "one") is split back into its words.
+splitSides = function(words)
+	result = []
+	for i in words.indexes
+		w = words[i]
+		if not w[1] and i + 1 < words.len and hasCat(lexicon.lookup(w[0]), "side") then
+			following = lexicon.lookup(words[i+1][0])
+			if hasCat(following, "adj") or hasCat(following, "noun") or words[i+1][0] == "one" then
+				comma = w[2]
+				for part in w[0].split(" ")
+					result.push [part, false, comma, part]
+					comma = false
+				end for
+				continue
+			end if
+		end if
+		result.push w
+	end for
+	return result
+end function
+
+// Does any of these lexicon entries have the category?
+hasCat = function(entries, cat)
+	for e in entries
+		if e.cat == cat then return true
+	end for
+	return false
+end function
+
 // Turn text into tokens.  names is a list of names the robot has been
 // taught (like "superblock"), which are treated as names when they appear.
 // nouns is a list of nouns it has been taught (like "steeple"), which may
-// appear in the singular or the plural.
-tokenize = function(text, names=null, nouns=null)
+// appear in the singular or the plural.  robotName is the robot's own name
+// ("Robot", or what the user renamed it), which marks a word as speaking to
+// the robot: "Robot, pick up the red cube."
+tokenize = function(text, names=null, nouns=null, robotName=null)
 	tokens = []
 	// (Names are kept as they were typed, but match in any case.)
 	lowerNames = []
@@ -152,7 +186,7 @@ tokenize = function(text, names=null, nouns=null)
 			lowerNames.push n.lower
 		end for
 	end if
-	for w in joinPhrases(expandContractions(splitWords(text)))
+	for w in splitSides(joinPhrases(expandContractions(splitWords(text))))
 		t = {"text": w[0], "quoted": w[1], "afterComma": w[2], "original": w[3], "entries": []}
 		if t.quoted or (lowerNames and lowerNames.indexOf(t.text) != null) then
 			t.entries.push {"cat": "name", "form": "base", "stem": t.text}
@@ -161,6 +195,7 @@ tokenize = function(text, names=null, nouns=null)
 			t.entries += lexicon.lookup(t.text)
 			if nouns then t.entries += learnedNounEntries(t.text, nouns)
 		end if
+		if robotName and t.text == robotName.lower then t.entries.push {"cat": "vocative"}
 		// A word nobody knows might be a new name, as in "Call it Bert"
 		// (no quotation marks).  It's marked "unknown", and only a frame
 		// that gives a name will take it; anywhere else, the parse fails,
@@ -271,6 +306,7 @@ Parser.make = function(tokens)
 	p = new Parser
 	p.tokens = tokens
 	p.memo = {}        // "rule:position" -> results, so no work is done twice
+	p.expectingName = false   // did the robot just ask the user's name?  (see smallTalk)
 	p.furthest = 0     // the furthest position any rule looked at
 	return p
 end function
@@ -468,6 +504,14 @@ Parser.nounCore = function(pos)
 		for n in self.word(pos, "noun")
 			if n.tree.entry.head == "one" then results.push result(node("NP", [d.tree, n.tree]), n.next)
 		end for
+	end for
+	// "How many are there?": how many of the things we were just talking
+	// about.  It's read as "how many ones", and "ones" borrows its noun from
+	// what came before, as "one" does.
+	for d in self.word(pos, "det")
+		if d.tree.entry.det != "how-many" then continue
+		ones = {"cat": "noun", "word": "ones", "entry": {"cat": "noun", "head": "one", "form": "plural", "stem": "one"}}
+		results.push result(node("NP", [d.tree, ones]), d.next)
 	end for
 	for d in self.determinerPhrase(pos)
 		if d.tree and determinerInfo(d.tree).partitive then
@@ -1103,13 +1147,13 @@ end function
 
 // Every way to read a whole sentence starting here.
 Parser.sentence = function(pos)
-	return self.commandSentence(pos) + self.statementSentence(pos) +
+	return self.smallTalk(pos) + self.commandSentence(pos) + self.statementSentence(pos) +
 	  self.thereStatement(pos) + self.defineStatement(pos) + self.existsQuestion(pos) + self.seeQuestion(pos) + self.handQuestion(pos) +
 	  self.whQuestion(pos) + self.identifyQuestion(pos) + self.choiceQuestion(pos) + self.whereQuestion(pos) +
 	  self.attributeQuestion(pos) + self.yesNoQuestion(pos) + self.canQuestion(pos) +
 	  self.didQuestion(pos) + self.eventQuestion(pos) + self.whatDoneQuestion(pos) + self.chat(pos) + self.tellMe(pos) +
 	  self.showMe(pos) + self.methodQuestion(pos) + self.nameStatement(pos) + self.exampleStatement(pos) +
-	  self.whatAbout(pos)
+	  self.whatAbout(pos) + self.calledByName(pos)
 end function
 
 // "Tell me what you are holding."  "Can you tell me where the red cube is?"
@@ -1277,6 +1321,85 @@ Parser.chat = function(pos)
 	return results
 end function
 
+// Small talk: "My name is Joe."  "What's your name?"  "How do you work?"
+// Each is a whole sentence in one of the fixed forms listed in the lexicon
+// (lexicon.smallTalk), perhaps after a greeting ("Hi, I'm Joe"), a lead word
+// ("Actually, call me Joseph", "From now on, your name is Bob") or "please".
+// The sentence node keeps the pattern's ICL and the name, if it has one.
+//
+// Some patterns are only answers to the robot's "What is it?" about the
+// user's name ("Joe."); they're tried only when expectingName is set.
+Parser.smallTalk = function(pos)
+	results = []
+	for g in self.optionalWord(pos, "chat")
+		if g.tree and g.tree[0].entry.reply != "hello" then continue
+		// ("Hi Bob, my name is Al": after a greeting, the robot's name.)
+		for v in self.optionalWord(g.next, "vocative")
+		if v.tree and not g.tree then continue     // (a name first is in parse)
+		for lead in self.optionalWord(v.next, "lead")
+			for p in self.optionalWord(lead.next, "polite")
+				start = p.next
+				for pattern in lexicon.smallTalk
+					if pattern.answer and not self.expectingName then continue
+					for m in self.matchTalk(start, pattern.words)
+						parts = g.tree + v.tree + lead.tree + p.tree
+						for i in range(start, m.next - 1)
+							parts.push leaf(self.tokens[i], {"cat": "talk"})
+						end for
+						s = sentenceNode("smallTalk", parts)
+						s.icl = pattern.icl
+						s.name = m.name
+						results.push result(s, m.next)
+					end for
+				end for
+			end for
+		end for
+		end for
+	end for
+	return results
+end function
+
+// Every way the words of a small-talk pattern match the tokens starting at
+// pos: a list of {next, name}, where name is the words a <name> slot took,
+// as they were typed.  A token may be several words ("from now on"), which
+// must all match.  A slot takes one word or more, fewest first, so "Your
+// name is Bob now" leaves "now" for the end of the sentence.
+Parser.matchTalk = function(pos, words)
+	if not words then return [{"next": pos, "name": null}]
+	w = words[0]
+	if w == "<name>" or w == "<Name>" then
+		results = []
+		taken = []
+		for t in range(pos, pos + 2)
+			if t >= self.tokens.len then break
+			token = self.tokens[t]
+			if token.text == "?" then break
+			if w == "<Name>" and not icl.isUpper(token.original[0]) then break
+			taken.push token.original
+			for r in self.matchTalk(t + 1, words[1:])
+				results.push {"next": r.next, "name": taken.join(" ")}
+			end for
+		end for
+		return results
+	end if
+	if pos >= self.tokens.len then return []
+	tokenWords = self.tokens[pos].text.split(" ")
+	if self.tokens[pos].quoted or words[:tokenWords.len] != tokenWords then return []
+	return self.matchTalk(pos + 1, words[tokenWords.len:])
+end function
+
+// "Robot?"  "Bob."  Just the robot's name: are you there?
+Parser.calledByName = function(pos)
+	results = []
+	for v in self.word(pos, "vocative")
+		s = sentenceNode("smallTalk", [v.tree])
+		s.icl = "Chat here"
+		s.name = null
+		results.push result(s, v.next)
+	end for
+	return results
+end function
+
 // "Will you please pick up a block and put it in the box"
 Parser.commandSentence = function(pos)
 	results = []
@@ -1411,13 +1534,35 @@ end function
 // cubes and a pyramid."  The new word is in quotes, so it comes to us as a
 // name.
 Parser.defineStatement = function(pos)
-	results = []
+	results = self.defineAs(pos)
 	for d in self.optionalWord(pos, "det")
 		if d.tree and d.tree[0].entry.det != "a" then continue
 		for n in self.word(d.next, "name")
 			for b in self.word(n.next, "be")
 				for np in self.nounPhrase(b.next)
 					results.push result(sentenceNode("define", d.tree + [n.tree, b.tree, np.tree]), np.next)
+				end for
+			end for
+		end for
+	end for
+	return results
+end function
+
+// "Define a "steeple" as a pyramid on top of a block."  "Let's define..."
+// The same as "A "steeple" is...", in the order of a command.
+Parser.defineAs = function(pos)
+	results = []
+	for p in self.politeness(pos)
+		for v in self.word(p.next, "define")
+			for d in self.optionalWord(v.next, "det")
+				if d.tree and d.tree[0].entry.det != "a" then continue
+				for n in self.word(d.next, "name")
+					for a in self.word(n.next, "as")
+						for np in self.nounPhrase(a.next)
+							parts = p.tree + [v.tree] + d.tree + [n.tree, a.tree, np.tree]
+							results.push result(sentenceNode("define", parts), np.next)
+						end for
+					end for
 				end for
 			end for
 		end for
@@ -1872,8 +2017,17 @@ Parser.methodQuestion = function(pos)
 	return results
 end function
 
-// What may end a sentence: "please", a question mark.
+// What may end a sentence: the robot's name ("Thanks, Bob"), "again",
+// "now", "please", a question mark.
 Parser.ending = function(pos)
+	results = []
+	for v in self.optionalWord(pos, "vocative")
+		results += self.endingAfterName(v.next)
+	end for
+	return results
+end function
+
+Parser.endingAfterName = function(pos)
 	results = []
 	for a in self.optionalWord(pos, "again")
 		for n in self.optionalWord(a.next, "now")
@@ -1897,23 +2051,83 @@ end function
 
 // Parse a sentence.  Returns {trees, error}: every parse that covers the
 // whole text, best first, or an error message if there are none.
-parse = function(text, names=null, nouns=null)
-	tokens = tokenize(text, names, nouns)
-	p = Parser.make(tokens)
-	trees = []
-	for r in p.sentence(0)
-		for e in p.ending(r.next)
-			if e.next == tokens.len then
-				trees.push r.tree
-				break
-			end if
-		end for
+//
+// context may give:
+//   robotName       the robot's name, which may start or end a sentence
+//                   ("Robot, what is in the box?")
+//   expectingName   true if the robot just asked the user's name, so that
+//                   a name alone ("Joe.") is an answer
+parse = function(text, names=null, nouns=null, context=null)
+	if context == null then context = {}
+	robotName = null
+	if context.hasIndex("robotName") then robotName = context.robotName
+	tokens = tokenize(text, names, nouns, robotName)
+	expectingName = context.hasIndex("expectingName") and context.expectingName
+	p = parseTokens(tokens, expectingName)
+	if p.trees then return {"trees": p.trees, "error": null, "wrongName": null}
+	// Maybe the user called the robot by some other name: "Fred, what is
+	// in the box?", "Thanks, Fred."  A capitalized word we don't know, at
+	// the start or the end, may be that.  If the sentence makes sense
+	// without it, it was; the robot will say what its name really is.
+	for i in [0, tokens.len - 1]
+		if tokens[-1].text == "?" and i == tokens.len - 1 then i -= 1
+		if tokens.len < 2 or i < 0 or not tokens[i].unknown or not icl.isUpper(tokens[i].original[0]) then continue
+		saved = tokens[i].entries
+		tokens[i].entries = [{"cat": "vocative"}]
+		p2 = parseTokens(tokens, expectingName)
+		tokens[i].entries = saved
+		if p2.trees then return {"trees": p2.trees, "error": null, "wrongName": tokens[i].original}
 	end for
-	if trees then return {"trees": trees, "error": null}
 	// A word we don't know is most likely the trouble.
 	word = unknownWord(tokens)
-	if word then return {"trees": [], "error": "Sorry, I don't know the word """ + word + """."}
-	return {"trees": [], "error": p.complaint}
+	if word then return {"trees": [], "error": "Sorry, I don't know the word """ + word + """.", "wrongName": null}
+	return {"trees": [], "error": p.complaint, "wrongName": null}
+end function
+
+// Parse tokens as a whole sentence.  Returns the parser, with its trees:
+// every parse that covers all the tokens, best first.
+parseTokens = function(tokens, expectingName=false)
+	p = Parser.make(tokens)
+	p.expectingName = expectingName
+	p.trees = []
+	// The sentence starts at the beginning, or after the robot's name.
+	starts = [0]
+	if tokens.len > 1 and p.word(0, "vocative") then starts.push 1
+	p.parseFrom starts
+	// If that doesn't work, maybe it starts with a word that just links it
+	// to what came before: "Now how many are there?", "So what is in the
+	// box?", "And now, what are you holding?"  (Commands and small talk
+	// take these words themselves; this is for everything else.)
+	if not p.trees then
+		later = []
+		for start in starts
+			for a in p.optionalWord(start, "and")
+				pos = a.next
+				if a.tree then later.push pos
+				while p.word(pos, "lead")
+					pos += 1
+					later.push pos
+				end while
+			end for
+		end for
+		p.parseFrom later
+	end if
+	return p
+end function
+
+// Add to self.trees every parse of a whole sentence from any of these
+// starting positions to the end.
+Parser.parseFrom = function(starts)
+	for start in starts
+		for r in self.sentence(start)
+			for e in self.ending(r.next)
+				if e.next == self.tokens.len then
+					self.trees.push r.tree
+					break
+				end if
+			end for
+		end for
+	end for
 end function
 
 // Parse text as a noun phrase (for testing the noun-phrase grammar).

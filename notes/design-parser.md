@@ -197,6 +197,8 @@ After the dialogue, the grammar grew to cover the many other ways people say the
   - "How do you build a steeple?" (`Ask method`)
   - "How many blocks can you pick up?" (`[could e1]`)
 - **Social.** Greetings, thanks, praise, "help", "who are you?" and so on, each a whole sentence (`Chat hello`).
+- **Small talk** (`lexicon.smallTalk`, `Parser.smallTalk`). Fixed sentence patterns, matched against the whole sentence so their words aren't joined elsewhere ("what are you" vs. "what are you holding"). A `<name>` slot takes one to three words; `<Name>` takes only capitalized ones, so "I'm Joe" names the user but "I'm tired" doesn't. Each pattern gives its ICL, with the user as `me` and the robot as `you`: `Name me, Joe`, `Name you, Bob`, `Ask name me`, `Ask yes-no you [named Bob]`, `Chat about`. A greeting, a lead word or "please" may come first ("Hi, I'm Joe").
+- **Speaking to the robot by name.** The robot's name (default "Robot") may start or end a sentence ("Bob, pick up the red cube", "Thanks, Bob"), or stand alone ("Robot?"). A capitalized unknown word in either place, when the sentence parses without it, is taken as the wrong name ("Fred, what's in the box?"), and the robot corrects it before answering.
 - **Naming and teaching words.** What "Call X Y" means depends on the determiners (`Meaning.naming`):
   - "Call the biggest block superblock": a name for one thing: `Name x1, superblock`.
   - "Call the box a crate": a word for that one thing: `DefineLike x1, crate`. "The crate" and "Is the box a crate?" work.

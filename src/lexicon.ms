@@ -164,6 +164,13 @@ for w in ["biggest", "largest", "smallest", "littlest", "tallest", "shortest", "
 	add w, {"cat": "adj", "pred": w, "value": null, "superlative": true}
 end for
 add "rearmost", {"cat": "adj", "pred": "backmost", "value": null, "superlative": true}
+// "The left one", "the back block": before a noun, a side picks by
+// contrast, like "leftmost".  ("The left one" of two green cubes is the one
+// further left, even if both are on the right side of the table.)
+for kv in {"left": "leftmost", "left-hand": "leftmost", "right": "rightmost", "right-hand": "rightmost",
+  "front": "frontmost", "back": "backmost", "rear": "backmost"}
+	add kv.key, {"cat": "adj", "pred": kv.value, "value": null, "superlative": true}
+end for
 // Tall, short, wide and narrow are relative, like big and small.
 adjective "tall", "height", "tall"
 adjective "short", "height", "short"
@@ -427,12 +434,12 @@ adjective "full", "full"
 
 // Words that may start a command without changing what it means: "Now put
 // it in the box", "First pick up the red cube, then...".
-for w in ["now", "first", "next", "then", "so", "ok", "okay", "also"]
+for w in ["now", "first", "next", "then", "so", "ok", "okay", "also", "actually", "well", "from now on"]
 	simple w, "lead"
 end for
 // Ways of asking for something, before the command itself: "I want you to
 // pick up a block", "Go find a block", "Try to find a red pyramid".
-for w in ["i want you to", "i would like you to", "i need you to", "try to", "go", "go and", "please"]
+for w in ["i want you to", "i would like you to", "i need you to", "try to", "go", "go and", "please", "let us"]
 	simple w, "request"
 end for
 // "What about the table?"  "How about on the table?"  The last thing said,
@@ -472,11 +479,93 @@ chat ["stop", "wait", "never mind", "cancel"], "stop"
 chat ["goodbye", "bye", "good bye", "see you later"], "bye"
 chat ["yes", "no", "ok", "okay"], "ok"
 
+// Small talk: whole sentences in a few fixed forms, about the user, the
+// robot, and their names.  Unlike the social niceties above, these are
+// patterns of words matched against the whole sentence, so their words
+// aren't joined everywhere they appear: "what are you" is small talk, but
+// "what are you holding" is still a question about the world.
+//
+// A pattern's words must match the sentence's words exactly (after
+// contractions are expanded, so "what's" is "what is").  A slot takes a
+// name, of one to three words:
+//   <name>   any words: "my name is Joe", "my name is joe strout"
+//   <Name>   only capitalized words.  "I'm Joe" says a name, but "I'm
+//            tired" doesn't, and only the capital tells them apart.  (Proper
+//            names are the one place English spelling marks a word's role.)
+// Each pattern gives its meaning as ICL, with NAME standing for the name.
+// The user is "me" and the robot is "you", as the user would say them:
+//   Name me, NAME              the user's name is NAME
+//   Name you, NAME             the robot's name is NAME
+//   Ask name me                what is the user's name?
+//   Ask yes-no you [named NAME]  is the robot's name NAME?
+//   Chat about                 a fixed reply (see Brain.chatReplies)
+// A small greeting, a lead word or "please" may come first ("Hi, I'm Joe",
+// "Actually, call me Joseph"); see Parser.smallTalk.
+//
+// Where one pattern starts like another, the longer goes first: "my name
+// is now <name>" before "my name is <name>", which would take "now" as part
+// of the name.
+smallTalk = []
+talk = function(patterns, meaning, onlyAsAnswer=false)
+	for p in patterns
+		smallTalk.push {"words": p.split(" "), "icl": meaning, "answer": onlyAsAnswer}
+	end for
+end function
+
+// The user's name.
+talk ["my name is now <name>", "my name is <name>", "my name 's <name>", "the name is <name>",
+  "i am called <name>", "i am <Name>",
+  "call me <name>", "you can call me <name>", "you may call me <name>",
+  "people call me <name>", "everyone calls me <name>", "everybody calls me <name>",
+  "my friends call me <name>", "they call me <name>", "i go by <name>"], "Name me, NAME"
+// After the robot asks "What is it?", the name alone will do: "Joe."  "It's
+// Joe."  (Anywhere else, a word on its own isn't a name.)
+talk ["it is <name>", "<name>"], "Name me, NAME", true
+talk ["what is my name", "who am i", "do you know my name", "do you remember my name",
+  "what do you call me", "tell me my name", "say my name"], "Ask name me"
+talk ["is my name <name>", "am i <name>"], "Ask yes-no me [named NAME]"
+
+// The robot's name.
+talk ["your name is now <name>", "your new name is <name>", "your name will be <name>",
+  "your name is <name>", "you are now <Name>", "you are <Name>",
+  "call yourself <name>", "i will call you <name>", "i am going to call you <name>",
+  "i am gonna call you <name>", "i want to call you <name>", "i would like to call you <name>",
+  "i shall call you <name>", "i call you <name>", "i name you <name>", "i will name you <name>",
+  "let us call you <name>", "let me call you <name>", "can i call you <name>",
+  "may i call you <name>", "we will call you <name>", "rename yourself <name>"], "Name you, NAME"
+talk ["what is your name", "do you have a name", "what should i call you", "what do i call you",
+  "what can i call you", "what are you called", "what is your name again"], "Ask name you"
+talk ["is your name <name>", "are you <Name>"], "Ask yes-no you [named NAME]"
+
+// About the robot itself.
+talk ["tell me about yourself", "tell me about you", "describe yourself", "what are you",
+  "tell me something about yourself"], "Chat about"
+talk ["how do you work", "how does this work", "how does it work", "how do you understand me",
+  "how do you think"], "Chat work"
+talk ["what are you able to do", "what can i ask you", "what can i do", "what do you do",
+  "what can i tell you"], "Chat help"
+talk ["who made you", "who built you", "who created you", "who wrote you",
+  "who programmed you", "where do you come from", "where did you come from"], "Chat maker"
+talk ["how old are you", "when were you born", "when were you made"], "Chat age"
+talk ["how are you", "how are you doing", "how is it going", "how are things",
+  "how do you do", "how are you today"], "Chat howAreYou"
+talk ["nice to meet you", "pleased to meet you", "good to meet you", "glad to meet you"], "Chat meet"
+talk ["are you a robot", "are you a machine", "are you a computer"], "Chat robot"
+talk ["are you human", "are you a human", "are you a person", "are you alive",
+  "are you a man", "are you a woman", "are you real"], "Chat human"
+talk ["are you intelligent", "are you smart", "are you clever", "are you an ai",
+  "are you conscious", "do you think"], "Chat smart"
+talk ["are you there", "can you hear me", "are you listening", "hello are you there"], "Chat here"
+talk ["do you understand me", "do you understand", "do you understand english",
+  "can you understand me"], "Chat understand"
+talk ["what did i just say", "what did i say", "what was the last thing i said",
+  "what did i say last"], "Chat said"
+
 // Little words.
 for w in ["which", "that", "who"]
 	simple w, "relpro"
 end for
-for w in ["is", "are", "was", "were", "be"]
+for w in ["is", "are", "am", "was", "were", "be"]
 	simple w, "be"
 end for
 simple "not", "not"
@@ -517,6 +606,9 @@ end for
 verb "tell", {"tell": true}
 verb "ask", {"tell": true}
 simple "of", "of"
+// "Define a "steeple" as a pyramid on top of a block."
+simple "define", "define"
+simple "as", "as"
 simple "at least", "atLeast"
 simple "?", "punct"
 
@@ -528,7 +620,9 @@ contractions = {
   "i'm": "i am", "you're": "you are", "it's": "it is",
   "what's": "what is", "there's": "there is", "that's": "that is",
   "where's": "where is", "i'd": "i would", "its": "it 's", "haven't": "have not",
-  "hasn't": "has not", "hadn't": "had not", "you've": "you have"}
+  "hasn't": "has not", "hadn't": "had not", "you've": "you have",
+  "i'll": "i will", "you'll": "you will", "we'll": "we will", "let's": "let us",
+  "how's": "how is", "who's": "who is"}
 
 // Irregular verb forms: form -> [stem, form].
 irregular = {

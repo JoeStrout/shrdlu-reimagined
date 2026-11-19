@@ -281,6 +281,19 @@ expect "Why did you clear off that cube?", "x1 = the cube; e1 = event ClearOff x
 expect "Call the biggest block ""superblock"".", "x1 = the block [biggest]; Name x1, superblock"
 expect "Thank you.", "Chat thanks"
 
+// Small talk: the user is "me", the robot is "you".
+expect "My name is Joe.", "Name me, Joe"
+expect "my name is joe strout", "Name me, Joe Strout"
+expect "Hi, I'm Joe.", "Name me, Joe"
+expect "Your name is now Bob.", "Name you, Bob"
+expect "I'll call you Bob.", "Name you, Bob"
+expect "What's my name?", "Ask name me"
+expect "What is your name?", "Ask name you"
+expect "Is your name Bob?", "Ask yes-no you [named Bob]"
+expect "How do you work?", "Chat work"
+expect "What are you?", "Chat about"
+check readingsOf("I'm tired.") isa string, """I'm tired"" doesn't say a name (no capital)"
+
 // Ownership.
 expect "The blue pyramid is mine.", "x1 = the pyramid [color blue]; Own x1"
 // The robot's, and possessives

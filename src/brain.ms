@@ -92,6 +92,13 @@ Brain.lastMentioned = []  // ...and the last sentence
 Brain.unclear = null    // the variable we just said we didn't understand ("which pyramid?")
 Brain.pending = null    // what to finish if the user tells us which: {understanding, index, var}
 
+// The two people in the conversation (see Brain.namePerson).
+Brain.robotName = "Robot"   // what the robot is called; the user may change it
+Brain.userName = null       // the user's name, once they tell us
+Brain.askedName = false     // did we just ask the user's name?
+Brain.saidLast = null       // the user's last sentence before this one, for "What did I say?"
+Brain.saying = null         // ...and this one
+
 Brain.make = function(theWorld)
 	b = new Brain
 	b.world = theWorld
@@ -147,23 +154,59 @@ Brain.respond = function(prog)
 	return replies.join(" ")
 end function
 
-// What the robot says to social niceties ("Thank you.", "Hello.", "Help.").
-// The lexicon says which reply goes with which words.
+// What the robot says to social niceties ("Thank you.", "Hello.", "Help.")
+// and small talk ("How are you?").  The lexicon says which reply goes with
+// which words.  In a reply, <robot> is the robot's name, and <, user> is a
+// comma and the user's name, if we know it ("Hello, Joe!"), or nothing.
 chatReplies = {
   "thanks": "You're welcome!",
-  "hello": "Hello!  Ask me to move things, or ask me about them.",
+  "hello": "Hello<, user>!  Ask me to move things, or ask me about them.",
   "praise": "Thank you!",
   "sorry": "That's all right.",
   "help": "I can pick things up, put them on or in other things, stack them up, and clear things off.  " +
     "You can ask me where things are, what color or size they are, what's on or in something, " +
     "and why, how or when I did something.  You can also teach me new words.  (Type /help for examples.)",
-  "who": "I'm a robot arm.  I live in this little world of blocks, and I'll do what you ask, if I can.",
+  "who": "I'm <robot>, a robot arm.  I live in this little world of blocks, and I'll do what you ask, if I can.",
   "stop": "OK.",
-  "bye": "Goodbye!",
-  "ok": "OK."}
+  "bye": "Goodbye<, user>!",
+  "ok": "OK.",
+  "about": "I'm <robot>, a robot arm in a little world of blocks.  I can move things, answer questions " +
+    "about them, learn new words, and tell you why I did what I did.  Everything I say comes from " +
+    "hand-written rules, with no machine learning.",
+  "work": "I read your sentence with a grammar of English, and turn it into a little language of my " +
+    "own, called ICL (type /icl to see it).  Then I work out which things you mean, and answer, or plan " +
+    "the moves that do what you asked.  I remember my goals, so I can tell you why I did things.",
+  "maker": "I was written by Joe Strout, with help from Claude.",
+  "age": "I started up when this conversation began.",
+  "howAreYou": "I'm fine, thank you.  Ready to move some blocks!",
+  "meet": "Nice to meet you too<, user>.",
+  "robot": "Yes, a robot arm.",
+  "human": "No, I'm a robot arm.",
+  "smart": "I know a lot about blocks, and not much else.",
+  "here": "Yes, I'm here.",
+  "understand": "Mostly.  When I don't, I'll say which part I didn't understand."}
+
+// The reply to Chat (see chatReplies).
+Brain.chat = function(kind)
+	if kind == "said" then
+		if self.saidLast == null then return "You haven't said anything yet."
+		return "You said, """ + self.saidLast.trim + """"
+	end if
+	reply = chatReplies[kind].replace("<robot>", self.robotName)
+	if self.userName then
+		return reply.replace("<, user>", ", " + self.userName)
+	end if
+	return reply.replace("<, user>", "")
+end function
 
 Brain.handle = function(statement)
-	if statement.hasIndex("verb") and statement.verb == "chat" then return chatReplies[statement.args[0]]
+	if statement.hasIndex("verb") and statement.verb == "chat" then return self.chat(statement.args[0])
+	if statement.kind == "declare" and statement.verb == "name" and isPerson(statement.args[0]) then
+		return self.namePerson(statement.args[0], statement.args[1])
+	end if
+	if (statement.kind == "ask" or statement.kind == "claim") and isPerson(statement.target) then
+		return self.answerAboutPerson(statement)
+	end if
 	if statement.kind == "ask" then return self.answer(statement)
 	if statement.kind == "claim" then return self.checkClaim(statement)
 	if statement.kind == "command" then return self.command(statement)
@@ -1875,6 +1918,11 @@ Brain.hear = function(text)
 	// (lastUnderstanding is what we acted on, for showing what happened
 	// under the hood; actOn sets it.)
 	self.lastUnderstanding = null
+	self.saidLast = self.saying
+	self.saying = text
+	// Did we just ask the user's name?  (Only this sentence can answer.)
+	expectingName = self.askedName
+	self.askedName = false
 	// The answer to a question we just asked?
 	if self.question then
 		q = self.question
@@ -1889,9 +1937,22 @@ Brain.hear = function(text)
 		reply = self.settle(p, text)
 		if reply then return reply
 	end if
-	r = meaning.understand(text, self.knownNames, self.definitions.indexes)
+	context = {"robotName": self.robotName, "expectingName": expectingName}
+	r = meaning.understand(text, self.knownNames, self.definitions.indexes, context)
 	self.lastUnderstanding = r
 	if r.error then return r.error
+	reply = self.respondToUnderstanding(r)
+	// "Fred, what's in the box?"  Put them right, then answer anyway.
+	if r.wrongName then
+		correction = "My name is " + self.robotName + ", not " + r.wrongName + "."
+		// ("What's your name, Fred?" needs only the correction.)
+		if reply.indexOf("My name is ") == 0 then reply = correction else reply = correction + "  " + reply
+	end if
+	return reply
+end function
+
+// Respond to a sentence we've parsed (see hear): pick a reading and act on it.
+Brain.respondToUnderstanding = function(r)
 	if r.trees[0].kind == "whatAbout" then return self.whatAbout(r.trees[0])
 	pick = self.pickReading(r)
 	if pick.question then
@@ -2361,7 +2422,7 @@ Brain.checkStatement = function(statement, referents)
 	// still mean different things: "Is the green pyramid on top of the blue
 	// block?" (directly on it, or anywhere above it).  So the answer is part
 	// of what it means.
-	if statement.kind == "ask" and statement.q == "yes-no" and not self.problem then
+	if statement.kind == "ask" and statement.q == "yes-no" and icl.isVar(statement.target) and not self.problem then
 		words.push "answer: " + self.answerYesNo(statement.target, statement.claim)
 	end if
 	return words.join(" ")
@@ -2389,6 +2450,68 @@ Brain.giveName = function(statement)
 	things[0].names.push statement.args[1]
 	self.noteFocus statement.args[0], things
 	return "OK."
+end function
+
+//----------------------------------------------------------------------
+// The two people: names and questions about them
+//
+// Besides the things on the table, the conversation has two people in
+// it: the user, whom the user calls "me" (and the ICL does too), and the
+// robot, "you".  Each may have a name.  The robot's is "Robot" until the
+// user gives it another; the user's is unknown until they tell us.
+//   My name is Joe.          Name me, Joe
+//   Your name is Bob.        Name you, Bob
+//   What's my name?          Ask name me
+//   Is your name Bob?        Ask yes-no you [named Bob]
+// People like to test a robot by asking their name before they've said
+// it, so it says it doesn't know, and asks.  The next sentence may then be
+// just the name ("Joe."; see Parser.smallTalk).
+//----------------------------------------------------------------------
+
+isPerson = function(arg)
+	return arg == "me" or arg == "you"
+end function
+
+// "My name is Joe."  "Your name is now Bob."
+Brain.namePerson = function(who, name)
+	if who == "me" then
+		if self.userName == null then
+			self.userName = name
+			return "Nice to meet you, " + name + "."
+		end if
+		if self.userName.lower == name.lower then return "I know, " + self.userName + "."
+		self.userName = name
+		return "OK, I'll call you " + name + " now."
+	end if
+	if self.robotName.lower == name.lower then return "Yes, that's my name."
+	// The robot's name has to be its own: "Bob, pick it up" would be
+	// confusing if a block were called Bob too.
+	for n in self.knownNames
+		if n.lower == name.lower then return "Sorry, something else is called " + name + " already."
+	end for
+	self.robotName = name
+	return "OK, my name is " + name + " now."
+end function
+
+// "What is my name?"  "Is your name Bob?"
+Brain.answerAboutPerson = function(q)
+	if q.target == "you" then
+		name = self.robotName
+	else if self.userName then
+		name = self.userName
+	else
+		self.askedName = true
+		return "I don't know.  You haven't told me.  What is it?"
+	end if
+	if q.q == "attribute" and q.attr == "name" then
+		if q.target == "you" then return "My name is " + name + "."
+		return "Your name is " + name + "."
+	end if
+	if q.q == "yes-no" and q.claim and q.claim.pred == "named" then
+		if q.claim.args[0].lower == name.lower then return "Yes."
+		return "No, it's " + name + "."
+	end if
+	return "I don't know."
 end function
 
 //----------------------------------------------------------------------

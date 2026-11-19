@@ -613,3 +613,36 @@ Noticed: a "What about…?" that the robot gets wrong would be hard to spot, sin
 **Web page.** `docs/` is now a GitHub Pages site: a hand-written `index.html` with the app embedded (fixed 1280×800 canvas, since scaling it with CSS would throw off the mouse), plus instructions for talking to the robot and for the mouse, which used to be on screen. `scripts/update-web.sh` copies the engine (`raylib-miniscript.js` / `.wasm`) from `../raylib-miniscript/build-web` and bundles our files into `game.data`. The engine on the web always runs `assets/main.ms` and imports from that script's folder, so the package puts `src/*.ms` into `/assets/` beside the contents of `assets/`; the program's `"assets/..."` paths work unchanged since the working directory is `/`. Test with `cd docs && python3 -m http.server 8000`.
 
 **Gap noted: naming a thing vs. an arrangement.** From session 10: "A pyramid on top of a cube is called a "steeple"" was taken as a word for that kind of pyramid (`DefineLike`, as with "call the box a crate"), but the user meant the whole stack (`Define steeple, x1`, as "A steeple is a pyramid on top of a cube" already gives). Both readings are plausible, so the robot should ask: "By "steeple", do you mean: 1 - just the pyramid  2 - the whole stack?" Added as a gap in `tests/testCoverage.ms` ("an arrangement, called"); not tackled yet.
+
+### 2026-11-18: small talk and names
+
+- **Names for both people in the conversation.** The robot is called "Robot" until the user renames it; the user's name is unknown until they say it (`Brain.namePerson`, `Brain.answerAboutPerson`).
+  - "My name is Joe", "I'm Joe", "Call me Joe", "Hi, I'm Joe", "People call me Joe"... → `Name me, Joe`. "Nice to meet you, Joe.", then "I know, Joe." or "OK, I'll call you Joseph now."
+  - "Your name is now Bob", "I'm going to call you Bob", "Let's call you Bob", "Can I call you Bob?"... → `Name you, Bob`. A name some block already has is refused.
+  - "What's my name?", "Who am I?", "Do you know my name?" → `Ask name me`. Before it's known: "I don't know.  You haven't told me.  What is it?", and then the name alone ("Joe.", "It's Joe.") is an answer (`Parser.expectingName`). "Is your name Bob?" → `Ask yes-no you [named Bob]`.
+  - Names typed all in lower case get capitals ("joe strout" → "Joe Strout").
+  - "I am <Name>" and "You are <Name>" need a capital, so "I'm tired" isn't taken as a name (the classic chatbot blunder).
+  - Greetings use the user's name once known ("Hello, Joe!"), and "Who are you?" gives the robot's ("I'm Robot, a robot arm...").
+- **Speaking to the robot by name**: "Robot, what's in the box?", "Thanks, Bob.", "Bob?" ("Yes, I'm here."). The name is a `vocative` word that may start or end a sentence.
+- **Questions about the robot**, as fixed patterns with fixed replies (`Chat about`, `work`, `maker`, `age`, `howAreYou`, `robot`, `human`, `smart`, `here`, `understand`): "Tell me about yourself", "How do you work?", "Who made you?", "How are you?", "Are you human?", "Are you there?" and so on.
+- **"What did I just say?"** quotes the user's previous sentence.
+- Small talk is a list of whole-sentence patterns in the lexicon (`lexicon.smallTalk`), rather than joined multi-word chat words, so "what are you" doesn't break "what are you holding".
+- Also: "am" is a form of "be"; contractions "I'll", "let's", "how's" and the like; "actually", "well" and "from now on" may lead a sentence.
+
+Gaps noted: calling the robot by an old or wrong name ("Robot, ..." after renaming it, or "Fred, ...") just says the word is unknown; it should say "My name is Bob."  (Done in the next entry.)
+
+### 2026-11-18: wrong names, and "the left one" (session 12)
+
+- **Calling the robot by the wrong name.** When a sentence doesn't parse, and its first or last word is a capitalized word we don't know, the parser tries again with that word as the robot's name (`parser.parse`, `wrongName`). If that works, the robot puts the user right and then answers: "Fred, what is in the box?"  "My name is Bob, not Fred.  The blue pyramid."  This covers its old name after a rename too. A lower-case word isn't taken for a name.
+- **A side as an adjective.** From session 12: after "I don't understand which green cube you mean.", "The left one." didn't know "left". Now "left", "right", "front", "back", "rear", "left-hand" and "right-hand" before a noun pick by contrast, as "leftmost" and the others do: "the left one", "the back block", "the right green cube".
+  - "On the left" was joined into one side word even in "put it on the left red block". A side followed by an adjective or noun is now split back into its words (`parser.splitSides`).
+- Fixed: "Robbie, how are you?" had two identical readings, because small talk also took the robot's name without a greeting before it.
+
+### 2026-11-18: session 13: "define ... as", "let's", "how many are there?"
+
+- **"Define a "steeple" as a pyramid on top of a block"**, with politeness or a request first ("Please define...", "Let's define..."), means the same as "A "steeple" is..." (`Parser.defineAs`).
+- **"Let's"** (or "let us") before a command is a request, like "I want you to": "Let's put it in the box."
+- **"How many" with no noun** ("How many are there?", "How many are on the table?") is read as "how many ones", borrowing the noun from before, as "one" does. After making a steeple, "Now how many are there?" counts steeples.
+- **Lead words before any sentence**, not just commands: "Now what is in the box?", "So how many blocks are there?", "And now, what are you holding?", "Actually, is the box empty?". Commands and small talk take these words themselves, so the parser only tries skipping them (and a first "and") when the sentence doesn't parse otherwise (`parseTokens`).
+
+Noticed, not changed: when a definition's brain work adds descriptions to its program (the layers of an arrangement), the session log prints them after the Define line, which looks odd.

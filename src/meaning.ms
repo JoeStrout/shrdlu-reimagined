@@ -477,7 +477,42 @@ Meaning.sentence = function(s)
 	else if s.kind == "chat" then
 		// "Thank you." -> Chat thanks
 		self.prog.add icl.command("chat", [s.parts[0].entry.reply])
+	else if s.kind == "smallTalk" then
+		// The pattern's ICL, from the lexicon, with the name filled in:
+		//   "My name is Joe." -> Name me, Joe
+		//   "Is your name Bob?" -> Ask yes-no you [named Bob]
+		name = properName(s.name)
+		for line in icl.read(s.icl).lines
+			self.prog.add fillName(line, name)
+		end for
 	end if
+end function
+
+// A name as it should be written: as typed, unless it was typed all in
+// lower case ("my name is joe strout"), when each word gets a capital, as
+// proper names do in English.
+properName = function(name)
+	if name == null or name != name.lower then return name
+	words = []
+	for w in name.split(" ")
+		words.push w.capitalized
+	end for
+	return words.join(" ")
+end function
+
+// Put the name in place of NAME in a line of small-talk ICL.
+fillName = function(line, name)
+	if line.hasIndex("args") then
+		for i in line.args.indexes
+			if line.args[i] == "NAME" then line.args[i] = name
+		end for
+	end if
+	if line.hasIndex("claim") and line.claim then
+		for i in line.claim.args.indexes
+			if line.claim.args[i] == "NAME" then line.claim.args[i] = name
+		end for
+	end if
+	return line
 end function
 
 // "I own blocks which are not red" -> Own x1, with x1 = any block [not
@@ -618,8 +653,8 @@ end function
 // The ICL for every reading of a sentence: {programs, trees, phrases,
 // error}.  The lists are in the same order, best first; phrases[i] lists
 // the noun phrases of reading i, with their words and variables.
-understand = function(text, names=null, nouns=null)
-	r = parser.parse(text, names, nouns)
+understand = function(text, names=null, nouns=null, context=null)
+	r = parser.parse(text, names, nouns, context)
 	programs = []
 	phrases = []
 	for tree in r.trees
@@ -628,7 +663,7 @@ understand = function(text, names=null, nouns=null)
 		programs.push m.prog
 		phrases.push m.phrases
 	end for
-	return {"programs": programs, "trees": r.trees, "phrases": phrases, "error": r.error}
+	return {"programs": programs, "trees": r.trees, "phrases": phrases, "error": r.error, "wrongName": r.wrongName}
 end function
 
 // Other readings of a sentence, where the first "it" means a noun phrase
